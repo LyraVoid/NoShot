@@ -4,7 +4,6 @@ import { useSnackbar } from "../Snackbar";
 import { Icon } from "../m3e/components/atoms/Icon";
 import { ChoiceMenu } from "../m3e/components/atoms/ChoiceMenu";
 import { FlexiblePageHeader } from "../m3e/components/molecules/FlexiblePageHeader";
-import { DialogActions, M3eDialog } from "../m3e/components/molecules/M3eDialog";
 import {
   SettingsList,
   SettingsRow,
@@ -14,7 +13,6 @@ import {
   loadApps,
   loadConf,
   saveConf,
-  stopApps,
 } from "../lib/bridge";
 import { monogram } from "../lib/labels";
 import type { AppEntry } from "../lib/types";
@@ -53,9 +51,7 @@ export function Apps() {
   const [filter, setFilter] = useState<Filter>("all");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [stoping, setStoping] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [stopOpen, setStopOpen] = useState(false);
 
   const bootstrap = useCallback(async () => {
     setLoading(true);
@@ -98,14 +94,6 @@ export function Apps() {
     });
   }, [apps, query, filter, selected]);
 
-  const cloneSelected = useMemo(
-    () =>
-      [...selected].filter(
-        (pkg) => (apps.find((app) => app.pkg === pkg)?.users.length ?? 0) > 1,
-      ).length,
-    [selected, apps],
-  );
-
   const toggle = (pkg: string) => {
     setSelected((previous) => {
       const next = new Set(previous);
@@ -128,20 +116,6 @@ export function Apps() {
       snack(t("apps.saveFailRetry"), "error");
     } finally {
       setBusy(false);
-    }
-  };
-
-  const stopSelected = async () => {
-    setStoping(true);
-    try {
-      const users = new Map(apps.map((app) => [app.pkg, app.users]));
-      const count = await stopApps([...selected], users);
-      setStopOpen(false);
-      snack(count > 0 ? t("apps.stopped", { n: selected.size }) : t("apps.nothingToStop"));
-    } catch {
-      snack(t("apps.stopFailed"), "error");
-    } finally {
-      setStoping(false);
     }
   };
 
@@ -263,14 +237,6 @@ export function Apps() {
           </SettingsList>
         )}
 
-        {selected.size > 0 && (
-          <div className={styles.secondaryAction}>
-            <Button variant="subtle" onClick={() => setStopOpen(true)}>
-              {t("apps.stopSelected")}
-            </Button>
-          </div>
-        )}
-
       </div>
 
       {(dirty || busy) && <button
@@ -288,27 +254,6 @@ export function Apps() {
         )}
         <span>{busy ? t("apps.saving") : t("apps.save")}</span>
       </button>}
-
-      <M3eDialog
-        opened={stopOpen}
-        onClose={() => setStopOpen(false)}
-        title={t("apps.dialogTitle")}
-      >
-        <p className={styles.dialogText}>
-          {t("apps.dialogBody", { n: selected.size })}
-          {cloneSelected > 0 ? t("apps.dialogClones", { n: cloneSelected }) : ""}
-        </p>
-        <p className={styles.dialogText}>{t("apps.dialogNote")}</p>
-        <p className={styles.dialogText}>{t("apps.dialogHint")}</p>
-        <DialogActions>
-          <Button variant="subtle" onClick={() => setStopOpen(false)}>
-            {t("apps.cancel")}
-          </Button>
-          <Button variant="subtle" loading={stoping} onClick={() => void stopSelected()}>
-            {t("apps.confirmStop")}
-          </Button>
-        </DialogActions>
-      </M3eDialog>
 
     </>
   );

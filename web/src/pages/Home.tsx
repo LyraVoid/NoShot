@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
-import { isDemo, moduleVersion, zygiskStatus } from "../lib/bridge";
+import { isDemo, loadApps, loadConf, moduleVersion, stopApps, zygiskStatus } from "../lib/bridge";
 import { CONF_PATHS } from "../lib/conf";
+import { useSnackbar } from "../Snackbar";
 import type { ZygiskStatus } from "../lib/types";
 import { Icon, type IconName } from "../m3e/components/atoms/Icon";
 import { FlexiblePageHeader } from "../m3e/components/molecules/FlexiblePageHeader";
@@ -53,6 +54,8 @@ const MODULE = {
 
 export function Home() {
   const { t } = useI18n();
+  const snack = useSnackbar();
+  const [stopping, setStopping] = useState(false);
   const [status, setStatus] = useState<ZygiskStatus>();
   const [version, setVersion] = useState("—");
   const [probe, setProbe] = useState(0);
@@ -77,6 +80,25 @@ export function Home() {
 
   const card = cardState(status, t);
 
+  const stopConfigured = async () => {
+    setStopping(true);
+    try {
+      const conf = await loadConf();
+      if (conf.pkgs.size === 0) {
+        snack(t("apps.nothingToStop"));
+        return;
+      }
+      const apps = await loadApps();
+      const users = new Map(apps.map((app) => [app.pkg, app.users]));
+      const count = await stopApps([...conf.pkgs], users);
+      snack(count > 0 ? t("apps.stopped", { n: count }) : t("apps.nothingToStop"));
+    } catch {
+      snack(t("apps.stopFailed"), "error");
+    } finally {
+      setStopping(false);
+    }
+  };
+
   return (
     <>
       <FlexiblePageHeader title="NoShot" aside={isDemo ? t("home.preview") : t("home.overview")} />
@@ -95,6 +117,7 @@ export function Home() {
               setLoading(true);
               setProbe((current) => current + 1);
             }} />
+            <SettingsRow icon="power" title={t("home.stop")} detail={t("home.stopDetail")} disabled={stopping || isDemo} action={() => void stopConfigured()} />
           </SegmentedSection>
         </div>
         <SegmentedSection title={t("home.info")}>
