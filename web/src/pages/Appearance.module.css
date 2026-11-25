@@ -1,0 +1,69 @@
+.value {
+  color: var(--on-muted);
+  text-align: end;
+}
+
+.seedField {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: var(--settings-row-surface);
+}
+
+.swatches {
+  display: flex;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  padding: 0 var(--s12) var(--s8);
+}
+
+.swatches label {
+  display: grid;
+  position: relative;
+  place-items: center;
+  flex: 0 0 var(--hit);
+  height: var(--hit);
+  border-radius: var(--r-full);
+  cursor: pointer;
+}
+
+.swatches input {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.swatches span {
+  pointer-events: none;
+  position: relative;
+  width: 2rem;
+  height: 2rem;
+  border-radius: var(--r-full);
+  transition: transform var(--fast);
+}
+
+.swatches input:checked + span {
+  outline: 2px solid var(--primary);
+  outline-offset: 3px;
+}
+
+.swatches input:checked + span::after {
+  content: "";
+  position: absolute;
+  inset: 0.6875rem;
+  border-radius: var(--r-full);
+  background: var(--on-primary);
+  box-shadow: 0 0 0 1px var(--primary);
+}
+
+.swatches label:has(input:focus-visible) {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+
+.swatches label:active span {
+  transform: scale(0.9);
+}

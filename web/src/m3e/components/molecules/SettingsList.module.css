@@ -1,0 +1,104 @@
+.group {
+  display: grid;
+  align-content: start;
+  gap: 2px;
+}
+.group > * {
+  border-radius: var(--r4);
+}
+.group > :first-child {
+  border-start-start-radius: var(--r16);
+  border-start-end-radius: var(--r16);
+}
+.group > :last-child {
+  border-end-start-radius: var(--r16);
+  border-end-end-radius: var(--r16);
+}
+.row {
+  display: grid;
+  grid-template-columns: var(--settings-row-icon-column, 1.5rem) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--s12);
+  padding: var(--settings-row-padding, var(--s12) var(--s16));
+  min-height: var(--settings-row-min-height, 4rem);
+  border: 0;
+  border-radius: var(--r4);
+  background: var(--settings-row-surface);
+  color: var(--on-surface);
+  text-align: start;
+  font: inherit;
+  font-size: var(--settings-row-font-size, 1rem);
+  line-height: var(--settings-row-line-height, 1.5rem);
+}
+.noIcon {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+.split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  padding-inline-end: var(--s8);
+  background: var(--settings-row-surface);
+}
+.split > .row {
+  border-radius: inherit;
+}
+.split > button:last-child {
+  min-height: var(--hit);
+  max-width: 7rem;
+  white-space: normal;
+}
+.icon {
+  display: grid;
+  color: var(--on-muted);
+}
+.leading {
+  display: grid;
+  place-items: center;
+  min-width: 0;
+}
+.row[data-availability="available"] .icon {
+  color: var(--primary);
+}
+.copy {
+  overflow-wrap: anywhere;
+}
+.detail {
+  display: block;
+  white-space: pre-line;
+  color: var(--on-muted);
+  font-size: var(--settings-row-detail-size, 0.875rem);
+  line-height: var(--settings-row-detail-line-height, 1.25rem);
+}
+.action {
+  cursor: pointer;
+  transition:
+    background var(--fast),
+    border-radius var(--fast),
+    transform var(--fast);
+}
+@media (hover: hover) {
+  .action:enabled:hover {
+    background: var(--surface-container-high);
+  }
+}
+.action:enabled:active {
+  background: color-mix(
+    in srgb,
+    var(--surface-container-high),
+    var(--on-surface) 8%
+  );
+  border-radius: var(--r10);
+  transform: scale(var(--settings-row-pressed-scale, 1));
+}
+.action:disabled {
+  cursor: default;
+}
+.action:disabled .copy {
+  color: var(--on-muted);
+}
+@media (prefers-reduced-motion: reduce) {
+  .action:enabled:active {
+    transform: none;
+  }
+}

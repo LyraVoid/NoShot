@@ -1,0 +1,88 @@
+.dashboard,
+.overview {
+  display: grid;
+  gap: var(--s16);
+  align-content: start;
+}
+
+.dashboard {
+  gap: var(--s24);
+}
+
+.activation {
+  min-height: 6rem;
+  display: grid;
+  grid-template-columns: 2.5rem minmax(0, 1fr);
+  align-items: center;
+  gap: var(--s16);
+  padding: var(--s16);
+  border-radius: var(--r16);
+  background: var(--settings-row-surface);
+  color: var(--on-surface);
+}
+
+.activation[data-state="active"] {
+  background: var(--secondary-container);
+  color: var(--on-secondary-container);
+}
+
+.activation:is([data-state="failed"], [data-state="missing"]) {
+  background: var(--error-container);
+  color: var(--on-error-container);
+}
+
+.mark {
+  color: var(--on-muted);
+}
+
+.activation[data-state="unknownProtocol"] .mark {
+  color: var(--status-warning);
+}
+
+.activation[data-state="loading"] .mark {
+  animation: spin 1.2s linear infinite;
+}
+
+.activation:is([data-state="active"], [data-state="failed"], [data-state="missing"])
+  :is(.mark, .detail) {
+  color: inherit;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .activation[data-state="loading"] .mark {
+    animation: none;
+  }
+}
+
+.mark {
+  display: grid;
+  place-items: center;
+}
+
+.title,
+.detail {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.title {
+  font-size: 1.25rem;
+  line-height: 1.625rem;
+  font-weight: 500;
+}
+
+.detail {
+  line-height: 1.25rem;
+}
+
+@media (min-width: 1100px) {
+  .dashboard {
+    grid-template-columns: 1fr 1fr;
+  }
+}

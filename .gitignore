@@ -1,0 +1,11 @@
+# Zig
+zig-out/
+.zig-cache/
+build/
+
+# WebUI
+web/node_modules/
+web/dist/
+
+# Local
+*.zip
