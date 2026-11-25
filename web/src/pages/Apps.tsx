@@ -18,6 +18,7 @@ import {
 } from "../lib/bridge";
 import { monogram } from "../lib/labels";
 import type { AppEntry } from "../lib/types";
+import { useI18n } from "../i18n/I18n";
 import styles from "./Apps.module.css";
 
 type Filter = "all" | "selected" | "clone";
@@ -44,6 +45,7 @@ function AppIcon({ app }: { app: AppEntry }) {
 
 export function Apps() {
   const snack = useSnackbar();
+  const { t } = useI18n();
   const [apps, setApps] = useState<AppEntry[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [initial, setInitial] = useState<Set<string>>(new Set());
@@ -67,7 +69,7 @@ export function Apps() {
       setSelected(new Set(conf.pkgs));
       setInitial(new Set(conf.pkgs));
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "加载失败");
+      setError(caught instanceof Error ? caught.message : t("apps.loadFailed"));
     } finally {
       setLoading(false);
     }
@@ -118,13 +120,13 @@ export function Apps() {
     try {
       const path = await saveConf(selected);
       if (!path) {
-        snack("保存失败：所有写入通道都未生效", "error");
+        snack(t("apps.saveFail"), "error");
         return;
       }
       setInitial(new Set(selected));
-      snack(`已保存 ${selected.size} 个应用`);
+      snack(t("apps.saved", { n: selected.size }));
     } catch {
-      snack("保存失败，请重试", "error");
+      snack(t("apps.saveFailRetry"), "error");
     } finally {
       setBusy(false);
     }
@@ -136,9 +138,9 @@ export function Apps() {
       const users = new Map(apps.map((app) => [app.pkg, app.users]));
       const count = await stopApps([...selected], users);
       setStopOpen(false);
-      snack(count > 0 ? `已停止 ${selected.size} 个应用` : "没有需要停止的应用");
+      snack(count > 0 ? t("apps.stopped", { n: selected.size }) : t("apps.nothingToStop"));
     } catch {
-      snack("停止应用失败", "error");
+      snack(t("apps.stopFailed"), "error");
     } finally {
       setStoping(false);
     }
@@ -147,19 +149,19 @@ export function Apps() {
   return (
     <>
       <FlexiblePageHeader
-        title="应用"
+        title={t("apps.title")}
         aside={(
           <ChoiceMenu<Filter>
-            label="应用筛选"
+            label={t("apps.filter")}
             value={filter}
             options={[
-              { value: "all", label: "全部" },
-              { value: "selected", label: "已选" },
-              { value: "clone", label: "分身" },
+              { value: "all", label: t("apps.all") },
+              { value: "selected", label: t("apps.selected") },
+              { value: "clone", label: t("apps.clone") },
             ]}
             onChange={setFilter}
           >
-            <button type="button" className={styles.overflow} aria-label="应用筛选">
+            <button type="button" className={styles.overflow} aria-label={t("apps.filter")}>
               <Icon name="more" />
             </button>
           </ChoiceMenu>
@@ -168,23 +170,23 @@ export function Apps() {
 
       <div className={styles.page} data-saving-space={dirty || busy}>
         {error && (
-          <Alert color="danger" variant="light" title="加载应用列表失败">
-            {error}。请确认 WebUI 拥有 root 权限。
+          <Alert color="danger" variant="light" title={t("apps.alertTitle")}>
+            {t("apps.alertBody", { message: error })}
           </Alert>
         )}
 
         <TextInput
-          aria-label="搜索应用名或包名"
+          aria-label={t("apps.search")}
           classNames={{ input: styles.searchInput }}
           leftSection={<Icon name="search" />}
-          placeholder="搜索应用名或包名"
+          placeholder={t("apps.search")}
           radius={28}
           rightSection={
             query ? (
               <button
                 type="button"
                 className={styles.searchClear}
-                aria-label="清除搜索"
+                aria-label={t("apps.clearSearch")}
                 onClick={() => setQuery("")}
               >
                 <Icon name="close" />
@@ -198,13 +200,13 @@ export function Apps() {
 
         {!loading && (
           <h2 className={styles.listHead}>
-            {filter === "all" ? "全部应用" : filter === "selected" ? "已选应用" : "分身应用"}
+            {filter === "all" ? t("apps.headAll") : filter === "selected" ? t("apps.headSelected") : t("apps.headClone")}
             <span className={styles.count}>{filtered.length}</span>
           </h2>
         )}
 
         {loading ? (
-          <SettingsList label="正在加载应用">
+          <SettingsList label={t("apps.loadingList")}>
             {Array.from({ length: 6 }).map((_, index) => (
               <div key={index} className={styles.skeletonRow}>
                 <Skeleton circle height={40} />
@@ -222,26 +224,24 @@ export function Apps() {
               <Icon name={apps.length === 0 ? "missing" : "search"} />
             </span>
             <p className={styles.emptyTitle}>
-              {apps.length === 0 ? "没有可显示的应用" : "没有匹配的应用"}
+              {apps.length === 0 ? t("apps.emptyNone") : t("apps.emptyNoMatch")}
             </p>
             <p className={styles.emptyBody}>
-              {apps.length === 0
-                ? "请确认 WebUI 拥有 root 权限，且允许执行 pm 命令。"
-                : "换个关键词，或切换筛选条件。"}
+              {apps.length === 0 ? t("apps.emptyRootHint") : t("apps.emptyHint")}
             </p>
             {apps.length === 0 && (
               <Button variant="subtle" onClick={() => void bootstrap()}>
-                重新加载
+                {t("apps.reload")}
               </Button>
             )}
           </div>
         ) : (
-          <SettingsList label="应用列表">
+          <SettingsList label={t("apps.list")}>
             {filtered.map((app) => {
               const checked = selected.has(app.pkg);
               const meta = [
-                app.users.length > 1 ? `分身 ×${app.users.length}` : "",
-                app.missing ? "未安装" : "",
+                app.users.length > 1 ? t("apps.cloneMeta", { n: app.users.length }) : "",
+                app.missing ? t("apps.notInstalled") : "",
               ].filter(Boolean);
               return (
                 <SettingsRow
@@ -250,7 +250,7 @@ export function Apps() {
                   checked={checked}
                   className={`${styles.appRow} ${checked ? styles.selected : ""}`}
                   detail={`${app.pkg}${meta.length ? ` · ${meta.join(" · ")}` : ""}`}
-                  aria-description={`${checked ? "已勾选" : "未勾选"} · ${app.pkg}`}
+                  aria-description={`${checked ? t("apps.checked") : t("apps.unchecked")} · ${app.pkg}`}
                   leading={<AppIcon app={app} />}
                   title={app.label}
                   trailing={
@@ -267,7 +267,7 @@ export function Apps() {
         {selected.size > 0 && (
           <div className={styles.secondaryAction}>
             <Button variant="subtle" onClick={() => setStopOpen(true)}>
-              停止已选应用
+              {t("apps.stopSelected")}
             </Button>
           </div>
         )}
@@ -287,28 +287,26 @@ export function Apps() {
         ) : (
           <Icon name="check" />
         )}
-        <span>{busy ? "保存中" : "保存"}</span>
+        <span>{busy ? t("apps.saving") : t("apps.save")}</span>
       </button>}
 
       <M3eDialog
         opened={stopOpen}
         onClose={() => setStopOpen(false)}
-        title="停止已选应用？"
+        title={t("apps.dialogTitle")}
       >
         <p className={styles.dialogText}>
-          将停止已选的 <strong>{selected.size}</strong> 个应用
-          {cloneSelected > 0 ? `（含 ${cloneSelected} 个分身份例）` : ""}。
-          分身按各自用户单独停止；下次打开应用时配置才会生效。
+          {t("apps.dialogBody", { n: selected.size })}
+          {cloneSelected > 0 ? t("apps.dialogClones", { n: cloneSelected }) : ""}
         </p>
-        <p className={styles.dialogText}>
-          停止不是必须的：也可以从最近任务划掉应用。
-        </p>
+        <p className={styles.dialogText}>{t("apps.dialogNote")}</p>
+        <p className={styles.dialogText}>{t("apps.dialogHint")}</p>
         <DialogActions>
           <Button variant="subtle" onClick={() => setStopOpen(false)}>
-            取消
+            {t("apps.cancel")}
           </Button>
           <Button variant="subtle" loading={stoping} onClick={() => void stopSelected()}>
-            是，停止
+            {t("apps.confirmStop")}
           </Button>
         </DialogActions>
       </M3eDialog>

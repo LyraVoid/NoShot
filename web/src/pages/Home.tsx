@@ -6,50 +6,53 @@ import { Icon, type IconName } from "../m3e/components/atoms/Icon";
 import { FlexiblePageHeader } from "../m3e/components/molecules/FlexiblePageHeader";
 import { SegmentedSection } from "../m3e/components/molecules/SegmentedSection";
 import { SettingsRow } from "../m3e/components/molecules/SettingsList";
+import { useI18n } from "../i18n/I18n";
+import type { Message, Translate } from "../i18n/messages";
 import styles from "./Home.module.css";
 
 // Two headlines only: activated or not. The visual tone follows the underlying
 // state (active / failed / missing / unknownProtocol) so failures read as errors.
 type CardState = "active" | "failed" | "missing" | "unknownProtocol" | "loading";
 
-function cardState(status?: ZygiskStatus): {
+function cardState(status: ZygiskStatus | undefined, t: Translate): {
   title: string;
   detail: string;
   icon: IconName;
   state: CardState;
 } {
-  if (!status) return { title: "正在检测", detail: "正在读取模块状态", icon: "loading", state: "loading" };
+  if (!status) return { title: t("home.checking"), detail: t("home.checkingDetail"), icon: "loading", state: "loading" };
   if (status.module === "loaded") {
-    return { title: "已激活", detail: "已检测到模块加载", icon: "active", state: "active" };
+    return { title: t("home.active"), detail: t("home.activeDetail"), icon: "active", state: "active" };
   }
   if (status.module === "missing") {
-    return { title: "未激活", detail: "未找到模块文件", icon: "missing", state: "missing" };
+    return { title: t("home.inactive"), detail: t("home.missingLib"), icon: "missing", state: "missing" };
   }
   if (status.module === "installed" || status.module === "disabled") {
     return {
-      title: "未激活",
-      detail: status.module === "installed" ? "模块已安装，本次开机未加载" : "模块已禁用或待移除",
+      title: t("home.inactive"),
+      detail: status.module === "installed" ? t("home.installedNotLoaded") : t("home.disabledModule"),
       icon: "failed",
       state: "failed",
     };
   }
   return {
-    title: "未激活",
-    detail: status.host === "present" ? "已检测到宿主，未确认激活" : "未检测到模块加载",
+    title: t("home.inactive"),
+    detail: status.host === "present" ? t("home.hostPresent") : t("home.noLoad"),
     icon: "unknownProtocol",
     state: "unknownProtocol",
   };
 }
 
 const MODULE = {
-  loaded: "已观察到模块加载，尚不代表目标应用生效",
-  installed: "已安装 · 未观察到模块加载",
-  disabled: "模块已禁用或待移除",
-  missing: "未找到模块库文件",
-  unknown: "无法读取模块状态",
-} as const;
+  loaded: "home.mod.loaded",
+  installed: "home.mod.installed",
+  disabled: "home.mod.disabled",
+  missing: "home.mod.missing",
+  unknown: "home.mod.unknown",
+} as const satisfies Record<ZygiskStatus["module"], Message>;
 
 export function Home() {
+  const { t } = useI18n();
   const [status, setStatus] = useState<ZygiskStatus>();
   const [version, setVersion] = useState("—");
   const [probe, setProbe] = useState(0);
@@ -72,31 +75,31 @@ export function Home() {
     return () => { current = false; };
   }, []);
 
-  const card = cardState(status);
+  const card = cardState(status, t);
 
   return (
     <>
-      <FlexiblePageHeader title="NoShot" aside={isDemo ? "预览" : "运行概览"} />
+      <FlexiblePageHeader title="NoShot" aside={isDemo ? t("home.preview") : t("home.overview")} />
       <div className={styles.dashboard}>
         <div className={styles.overview}>
           <output className={styles.activation} data-state={card.state}>
             <span className={styles.mark}><Icon name={card.icon} filled={card.state === "active"} /></span>
             <span>
               <span className={styles.title}>{card.title}</span>
-              <span className={styles.detail}>{isDemo ? "仅展示界面，不读取设备" : card.detail}</span>
+              <span className={styles.detail}>{isDemo ? t("home.demoNote") : card.detail}</span>
             </span>
           </output>
-          <SegmentedSection title="运行状态">
-            <SettingsRow icon="status" title="本模块" detail={status ? MODULE[status.module] : "正在检测…"} />
-            <SettingsRow icon="refresh" title={loading ? "正在检测…" : "重新检测"} disabled={loading} action={() => {
+          <SegmentedSection title={t("home.status")}>
+            <SettingsRow icon="status" title={t("home.module")} detail={status ? t(MODULE[status.module]) : t("home.detecting")} />
+            <SettingsRow icon="refresh" title={loading ? t("home.detecting") : t("home.detect")} disabled={loading} action={() => {
               setLoading(true);
               setProbe((current) => current + 1);
             }} />
           </SegmentedSection>
         </div>
-        <SegmentedSection title="信息">
-          <SettingsRow icon="tag" title="模块版本" detail={version} />
-          <SettingsRow icon="file" title="主配置路径" detail={CONF_PATHS[0]} />
+        <SegmentedSection title={t("home.info")}>
+          <SettingsRow icon="tag" title={t("home.version")} detail={version} />
+          <SettingsRow icon="file" title={t("home.configPath")} detail={CONF_PATHS[0]} />
         </SegmentedSection>
       </div>
     </>

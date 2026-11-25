@@ -6,6 +6,8 @@ import { SettingsRow } from "../m3e/components/molecules/SettingsList";
 import { SegmentedSection } from "../m3e/components/molecules/SegmentedSection";
 import { contrasts, defaultAppearance, defaultColorProfile, defaultColorScheme, schemes, seeds, specVersions, type ColorProfile, type Seed } from "../m3e/theme/colorProfile";
 import { createColorScheme } from "../m3e/theme/theme";
+import { useI18n } from "../i18n/I18n";
+import type { Message, Translate } from "../i18n/messages";
 import styles from "./Appearance.module.css";
 
 export type AppearanceProps = {
@@ -15,26 +17,38 @@ export type AppearanceProps = {
 };
 
 const seedOptions = Object.keys(seeds) as Seed[];
-const labels = {
-  auto: "跟随系统", dark: "深色", light: "浅色",
-  slate: "蓝灰", blue: "海蓝", indigo: "靛紫", teal: "青绿", green: "苔绿", amber: "琥珀", rose: "玫瑰",
-  "2021": "2021", "2025": "2025", expressive: "灵动（Expressive）", tonalSpot: "柔和（Tonal Spot）",
-  vibrant: "鲜明（Vibrant）", neutral: "中性（Neutral）", monochrome: "单色（Monochrome）", content: "内容（Content）",
-  fidelity: "保真（Fidelity）", fruitSalad: "水果拼盘（Fruit Salad）", rainbow: "彩虹（Rainbow）",
-  standard: "标准", medium: "中等", high: "高",
-};
 
-function ChoiceRow<T extends keyof typeof labels>({ title, value, options, change, detail = labels[value] }: {
-  title: string; value: T; options: readonly T[]; change: (value: T) => void; detail?: string;
+const labelKeys = {
+  auto: "theme.auto", dark: "theme.dark", light: "theme.light",
+  slate: "seed.slate", blue: "seed.blue", indigo: "seed.indigo", teal: "seed.teal",
+  green: "seed.green", amber: "seed.amber", rose: "seed.rose",
+  "2021": "spec.2021", "2025": "spec.2025",
+  expressive: "scheme.expressive", tonalSpot: "scheme.tonalSpot", vibrant: "scheme.vibrant",
+  neutral: "scheme.neutral", monochrome: "scheme.monochrome", content: "scheme.content",
+  fidelity: "scheme.fidelity", fruitSalad: "scheme.fruitSalad", rainbow: "scheme.rainbow",
+  standard: "contrast.standard", medium: "contrast.medium", high: "contrast.high",
+} as const satisfies Record<string, Message>;
+
+type LabelKey = keyof typeof labelKeys;
+
+function ChoiceRow<T extends LabelKey>({ title, value, options, change, t, detail }: {
+  title: Message;
+  value: T;
+  options: readonly T[];
+  change: (value: T) => void;
+  t: Translate;
+  detail?: string;
 }) {
+  const shown = detail ?? t(labelKeys[value]);
   return (
-    <ChoiceMenu label={title} value={value} options={options.map((value) => ({ value, label: labels[value] }))} onChange={change}>
-      <SettingsRow icon="palette" title={title} aria-description={detail} trailing={<span className={styles.value}>{detail}</span>} />
+    <ChoiceMenu label={t(title)} value={value} options={options.map((value) => ({ value, label: t(labelKeys[value]) }))} onChange={change}>
+      <SettingsRow icon="palette" title={t(title)} aria-description={shown} trailing={<span className={styles.value}>{shown}</span>} />
     </ChoiceMenu>
   );
 }
 
 export function Appearance({ profile, effectiveSpec, setProfile }: AppearanceProps) {
+  const { t } = useI18n();
   const { colorScheme, setColorScheme } = useMantineColorScheme();
   const appearance = useComputedColorScheme(defaultAppearance);
   const seedGroup = useId();
@@ -44,24 +58,32 @@ export function Appearance({ profile, effectiveSpec, setProfile }: AppearancePro
     return { seed, primary: hexFromArgb(preview.primary), secondary: hexFromArgb(preview.secondaryContainer) };
   }), [appearance, specVersion, contrast]);
 
+  const defaults = t("theme.resetDetail", {
+    theme: t(labelKeys[defaultColorScheme]),
+    seed: t(labelKeys[defaultColorProfile.seed]),
+    spec: t(labelKeys[defaultColorProfile.specVersion]),
+    scheme: t(labelKeys[defaultColorProfile.scheme]),
+    contrast: t(labelKeys[defaultColorProfile.contrast]),
+  });
+
   return (
-    <SegmentedSection title="Material 3 配色">
-      <ChoiceRow title="主题" value={colorScheme} options={["auto", "dark", "light"]} change={setColorScheme} />
+    <SegmentedSection title={t("theme.section")}>
+      <ChoiceRow t={t} title="theme.theme" value={colorScheme} options={["auto", "dark", "light"]} change={setColorScheme} />
       <fieldset className={styles.seedField} aria-labelledby={seedGroup}>
-        <SettingsRow icon="palette" id={seedGroup} title="种子颜色" detail={labels[profile.seed]} />
+        <SettingsRow icon="palette" id={seedGroup} title={t("theme.seed")} detail={t(labelKeys[profile.seed])} />
         <div className={styles.swatches}>
           {previews.map(({ seed, primary, secondary }) => (
-            <label key={seed} title={labels[seed]}>
-              <input type="radio" name={seedGroup} aria-label={labels[seed]} checked={profile.seed === seed} onChange={() => setProfile({ ...profile, seed })} />
+            <label key={seed} title={t(labelKeys[seed])}>
+              <input type="radio" name={seedGroup} aria-label={t(labelKeys[seed])} checked={profile.seed === seed} onChange={() => setProfile({ ...profile, seed })} />
               <span style={{ background: `linear-gradient(to bottom, ${primary} 50%, ${secondary} 50%)` }} />
             </label>
           ))}
         </div>
       </fieldset>
-      <ChoiceRow title="配色规范" value={specVersion} detail={labels[effectiveSpec]} options={specVersions} change={(specVersion) => setProfile({ ...profile, specVersion })} />
-      <ChoiceRow title="配色风格" value={profile.scheme} options={schemes} change={(scheme) => setProfile({ ...profile, scheme })} />
-      <ChoiceRow title="配色对比度" value={contrast} options={contrasts} change={(contrast) => setProfile({ ...profile, contrast })} />
-      <SettingsRow icon="restore" title="恢复默认配色" detail="恢复为：跟随系统 · 蓝灰 · 2025 · 柔和（Tonal Spot） · 标准" action={() => {
+      <ChoiceRow t={t} title="theme.spec" value={specVersion} detail={t(labelKeys[effectiveSpec])} options={specVersions} change={(specVersion) => setProfile({ ...profile, specVersion })} />
+      <ChoiceRow t={t} title="theme.scheme" value={profile.scheme} options={schemes} change={(scheme) => setProfile({ ...profile, scheme })} />
+      <ChoiceRow t={t} title="theme.contrast" value={contrast} options={contrasts} change={(contrast) => setProfile({ ...profile, contrast })} />
+      <SettingsRow icon="restore" title={t("theme.reset")} detail={defaults} action={() => {
         setColorScheme(defaultColorScheme);
         setProfile(defaultColorProfile);
       }} />

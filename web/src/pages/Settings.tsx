@@ -4,20 +4,25 @@ import { ExpressiveSwitch } from "../m3e/components/atoms/ExpressiveSwitch";
 import type { IconName } from "../m3e/components/atoms/Icon";
 import { FlexiblePageHeader } from "../m3e/components/molecules/FlexiblePageHeader";
 import { SegmentedSection } from "../m3e/components/molecules/SegmentedSection";
+import { ChoiceMenu } from "../m3e/components/atoms/ChoiceMenu";
 import { SettingsRow } from "../m3e/components/molecules/SettingsList";
 import { loadSettings, openExternal, saveSettings } from "../lib/bridge";
 import type { Settings as SettingsValue } from "../lib/types";
+import type { Message } from "../i18n/messages";
 import { Appearance, type AppearanceProps } from "./Appearance";
+import { useI18n } from "../i18n/I18n";
+import { localeName, locales } from "../i18n/messages";
 import styles from "./Settings.module.css";
 
 const behavior = [
-  ["flagSecure", "secure", "窗口截屏限制", "处理目标应用窗口的截屏限制（FLAG_SECURE）。"],
-  ["surfaceSecure", "layers", "图层截屏限制", "仅处理已有图层的安全标记变更，不影响创建时设为安全的图层。"],
-  ["detectGuard", "filter", "截屏目录监听", "仅适用于文件监听，不影响 Android 系统截屏回调。"],
-] as const satisfies readonly (readonly [keyof SettingsValue, IconName, string, string])[];
+  ["flagSecure", "secure", "settings.flag", "settings.flagDetail"],
+  ["surfaceSecure", "layers", "settings.surface", "settings.surfaceDetail"],
+  ["detectGuard", "filter", "settings.detect", "settings.detectDetail"],
+] as const satisfies readonly (readonly [keyof SettingsValue, IconName, Message, Message])[];
 
 export function Settings(appearance: AppearanceProps) {
   const snack = useSnackbar();
+  const { locale, setLocale, t } = useI18n();
   const [settings, setSettings] = useState<SettingsValue>();
   const [saving, setSaving] = useState(false);
   const [loadFailed, setLoadFailed] = useState(false);
@@ -40,56 +45,59 @@ export function Settings(appearance: AppearanceProps) {
       if (!await saveSettings(next)) throw new Error();
       setSettings(next);
     } catch {
-      snack("未能确认设置已保存，请重试", "error");
+      snack(t("settings.saveFailed"), "error");
     } finally {
       setSaving(false);
     }
   };
 
-  function toggle(key: keyof SettingsValue, icon: IconName, title: string, detail: string) {
+  function toggle(key: keyof SettingsValue, icon: IconName, title: Message, detail: Message) {
     const on = settings?.[key] ?? false;
     const disabled = !settings || saving;
     return (
       <SettingsRow
         key={key}
         icon={icon}
-        title={title}
-        detail={detail}
+        title={t(title)}
+        detail={t(detail)}
         role="switch"
         aria-checked={on}
         disabled={disabled}
         action={() => void patch(key, !on)}
-        trailing={<ExpressiveSwitch label={title} checked={on} disabled={disabled} inert />}
+        trailing={<ExpressiveSwitch label={t(title)} checked={on} disabled={disabled} inert />}
       />
     );
   }
 
   return (
     <>
-      <FlexiblePageHeader title="设置" aside={saving ? "保存中…" : undefined} />
+      <FlexiblePageHeader title={t("settings.title")} aside={saving ? t("settings.saving") : undefined} />
       <div className={styles.page}>
         <div className={styles.preferences}>
-          <SegmentedSection title="模块行为">
+          <SegmentedSection title={t("settings.behavior")}>
             {settings ? behavior.map(([key, icon, title, detail]) => toggle(key, icon, title, detail)) : (
-              <SettingsRow icon={loadFailed ? "notice" : "loading"} role="status" title={loadFailed ? "无法读取模块设置" : "正在读取模块设置…"} />
+              <SettingsRow icon={loadFailed ? "notice" : "loading"} role="status" title={loadFailed ? t("settings.readFailed") : t("settings.reading")} />
             )}
           </SegmentedSection>
           {settings && (
-            <SegmentedSection title="日志记录">
-              {toggle("log", "logs", "记录运行日志", "将模块运行信息写入系统日志，供排查问题使用。")}
+            <SegmentedSection title={t("settings.logSection")}>
+              {toggle("log", "logs", "settings.logTitle", "settings.logDetail")}
             </SegmentedSection>
           )}
         </div>
         <Appearance {...appearance} />
-        <SegmentedSection title="关于">
-          <SettingsRow icon="info" title="开发者" detail="Matsuzaka Yuki · LyraVoid" />
+        <SegmentedSection title={t("settings.about")}>
+          <ChoiceMenu label={t("settings.language")} value={locale} options={locales.map((value) => ({ value, label: localeName[value] }))} onChange={setLocale}>
+            <SettingsRow icon="language" title={t("settings.language")} trailing={<span>{localeName[locale]}</span>} />
+          </ChoiceMenu>
+          <SettingsRow icon="info" title={t("settings.dev")} detail="Matsuzaka Yuki · LyraVoid" />
           <SettingsRow
             icon="github"
             title="GitHub"
             detail="LyraVoid"
             action={() => openExternal("https://github.com/LyraVoid")}
           />
-          <SettingsRow icon="file" title="许可证" detail="AGPL-3.0" />
+          <SettingsRow icon="file" title={t("settings.license")} detail="AGPL-3.0" />
         </SegmentedSection>
       </div>
     </>

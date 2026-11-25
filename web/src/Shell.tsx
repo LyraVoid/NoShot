@@ -1,16 +1,18 @@
 import { type ReactNode, useLayoutEffect, useRef } from "react";
 import { Icon } from "./m3e/components/atoms/Icon";
 import { syncAppBar } from "./m3e/components/molecules/FlexiblePageHeader";
+import { useI18n } from "./i18n/I18n";
+import type { Message } from "./i18n/messages";
 import styles from "./m3e/layout/Shell.module.css";
 
 export type Route = "/" | "/apps" | "/logs" | "/settings";
 
 const links = [
-  { path: "/", icon: "home", label: "首页" },
-  { path: "/apps", icon: "apps", label: "应用" },
-  { path: "/logs", icon: "logs", label: "日志" },
-  { path: "/settings", icon: "settings", label: "设置" },
-] as const;
+  { path: "/", icon: "home", label: "nav.home" },
+  { path: "/apps", icon: "apps", label: "nav.apps" },
+  { path: "/logs", icon: "logs", label: "nav.logs" },
+  { path: "/settings", icon: "settings", label: "nav.settings" },
+] as const satisfies readonly { path: Route; icon: "home" | "apps" | "logs" | "settings"; label: Message }[];
 
 /**
  * Layout shell: a scrollable M3E surface with a
@@ -18,6 +20,7 @@ const links = [
  * is driven by `syncAppBar` from the vendored component library.
  */
 export function Shell({ route, children }: { route: Route; children: ReactNode }) {
+  const { t } = useI18n();
   const main = useRef<HTMLElement>(null);
   const positions = useRef(new Map<string, number>());
 
@@ -46,9 +49,9 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
         className={styles.skip}
         onClick={() => main.current?.focus()}
       >
-        跳到内容
+        {t("nav.skip")}
       </button>
-      <nav className={styles.nav} aria-label="主导航">
+      <nav className={styles.nav} aria-label={t("nav.label")}>
         {links.map((link) => {
           const active = route === link.path;
           return (
@@ -60,7 +63,7 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
               <span className={styles.pill}>
                 <Icon name={link.icon} filled={active} />
               </span>
-              <span>{link.label}</span>
+              <span>{t(link.label)}</span>
             </a>
           );
         })}

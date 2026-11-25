@@ -19,7 +19,6 @@ export default function App(appearance: AppearanceProps) {
   useEffect(() => {
     const onHash = () => setRoute(normalize(window.location.hash));
     window.addEventListener("hashchange", onHash);
-    document.documentElement.lang = "zh-CN";
     const host = (window as unknown as {
       ksu?: { enableEdgeToEdge?: (enabled?: boolean) => void };
     }).ksu;
