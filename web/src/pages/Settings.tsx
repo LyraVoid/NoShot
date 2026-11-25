@@ -94,8 +94,8 @@ export function Settings(appearance: AppearanceProps) {
           <SettingsRow
             icon="github"
             title="GitHub"
-            detail="LyraVoid"
-            action={() => openExternal("https://github.com/LyraVoid")}
+            detail="LyraVoid/NoShot"
+            action={() => openExternal("https://github.com/LyraVoid/NoShot")}
           />
           <SettingsRow icon="file" title={t("settings.license")} detail="AGPL-3.0" />
         </SegmentedSection>
