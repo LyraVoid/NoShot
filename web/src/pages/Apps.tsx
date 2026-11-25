@@ -124,7 +124,6 @@ export function Apps() {
         return;
       }
       setInitial(new Set(selected));
-      snack(t("apps.saved", { n: selected.size }));
     } catch {
       snack(t("apps.saveFailRetry"), "error");
     } finally {
