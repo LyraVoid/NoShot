@@ -1,4 +1,4 @@
-<img src="assets/icon.png" alt="NoShot" width="96" height="96">
+<img src="assets/icon.png" alt="NoShot" width="420">
 
 # NoShot Zygisk
 
