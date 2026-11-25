@@ -370,8 +370,20 @@ async function bridgeInfos(pkgs: string[]): Promise<RawInfo[]> {
   return out;
 }
 
-export async function loadApps(): Promise<AppEntry[]> {
+const APP_CACHE_MS = 30_000;
+let appCache: { at: number; stamp: string; apps: AppEntry[] } | null = null;
+
+async function appStamp(): Promise<string> {
+  return (await exec("stat -c %Y /data/app 2>/dev/null")).trim();
+}
+
+export async function loadApps(force = false): Promise<AppEntry[]> {
   if (isDemo) return DEMO_APPS.map((a) => ({ ...a, users: [...a.users] }));
+
+  const stamp = await appStamp();
+  if (!force && appCache && appCache.stamp === stamp && Date.now() - appCache.at < APP_CACHE_MS) {
+    return appCache.apps;
+  }
 
   const users = new Map<string, Set<number>>();
   const out = await exec("pm list packages -3 -U 2>/dev/null");
@@ -414,7 +426,7 @@ export async function loadApps(): Promise<AppEntry[]> {
   }
 
   const collator = new Intl.Collator("zh-Hans-CN", { sensitivity: "base" });
-  return pkgs
+  const apps = pkgs
     .map((pkg): AppEntry => {
       const info = byPkg.get(pkg);
       return {
@@ -426,6 +438,9 @@ export async function loadApps(): Promise<AppEntry[]> {
       };
     })
     .sort((a, b) => collator.compare(a.label, b.label) || collator.compare(a.pkg, b.pkg));
+
+  appCache = { at: Date.now(), stamp, apps };
+  return apps;
 }
 
 /* ----------------------------------------------------------------- status */
