@@ -26,8 +26,11 @@ as secure, and the app process is not modified at all.
 - `client` also covers `SurfaceControl` `SECURE` in both `Transaction.setSecure`
   and `Builder.setSecure(true)` creation flags.
 - Optional guard against screenshot-directory `inotify` watches (API v4 hosts).
-- Boot-loop guard: two boots without a completed start disable the system side
-  by themselves.
+- Optional suppression of the Android 14+ capture/recording detection callbacks
+  (`capture_guard`), with an observe-only level that only counts them.
+- Boot-loop guard: three quick hook installs in one boot, with no healthy
+  uptime in between, disable the system side by themselves. A deliberate
+  `ctl.restart zygote` after a minute of uptime resets the count.
 - WebUI: app picker with search and dual-app filter, a separate screen for the
   per-app patch side, status card with the active side, runtime log console,
   diagnostics, theme and language.
@@ -79,6 +82,7 @@ bit 13 of the `LayoutParams` carried by `addToDisplay*` / `relayout*`, and
 | `/data/system/noshot_plan` | Selection resolved for `system_server` (generated) |
 | `/data/adb/noshot_zygisk/mode` | Side the system hook reported (generated) |
 | `/data/system/noshot_state` | Boot-time decisions of the system side (generated, first 8 KB) |
+| `/data/system/noshot_guard` | Capture-callback state: `on` / `observe` / `off` / `unsupported` (generated) |
 
 ```
 # noshot:2:2
@@ -106,6 +110,7 @@ flag_secure=1       # client mode: clear FLAG_SECURE in the binder parcel
 surface_secure=1    # client mode: SurfaceControl SECURE / SKIP_SCREENSHOT
 detect_guard=1      # client mode: refuse inotify watches on screenshot dirs
 system_hook=1       # system mode: patch in system_server
+capture_guard=0     # system mode: 0, observe (count only) or 1 (hide the notices)
 log=1               # write logs (tag: NoShot)
 ```
 
@@ -115,7 +120,7 @@ Recovery switches, no reinstall needed:
 | --- | --- |
 | `system_hook=0` | system side off, every selected app uses the in-process hook |
 | `/data/adb/noshot_zygisk/disable_system` | same, without editing the config |
-| `/data/system/noshot_disable` | written by the module itself after two failed boots |
+| `/data/system/noshot_disable` | written by the module itself after three quick failed starts in one boot |
 
 ## Build
 
@@ -154,9 +159,17 @@ SKIP_WEB=1 ./scripts/build.sh
 
 ## Known limits
 
-1. Android 14+ `registerScreenCaptureCallback` detection is not covered; the
-   native outbound-transaction route is evaluated separately before any ART
-   layer is considered.
+1. Android 14+ `registerScreenCaptureCallback` detection is covered only by
+   `capture_guard` on the system side: the callback transactions are recognised
+   by their interface token and, at level `1`, dropped before they leave
+   system_server. It is off by default, and the levels are `0` (off),
+   `observe` (count in the log and the state file, change nothing) and `1`
+   (hide the notices). A parcel layout the build does not recognise passes
+   through unchanged. It applies to the whole system, not per app: the callback
+   parcel carries the target binder but not the target app's identity. The hook
+   is installed at boot, so turning it on from `0` needs a framework restart
+   (`setprop ctl.restart zygote`); switching between `observe` and `1` takes
+   effect on the next callback. No ART hooking is involved.
 2. `Builder.setSecure(true)` is covered by `client` mode. In `system` mode only
    the layers `WindowManager` creates are covered; surfaces an app creates for
    itself are outside that scope.
@@ -192,6 +205,19 @@ OnePlus 13T, Android 17 (API 37), arm64, Zygisk API v4 host:
 - `client` mode and `system` mode run side by side in one boot session;
 - `system_hook=0` falls back to the in-process hook for every selected app;
 - config edits apply to the next window without a reboot.
+
+The capture-callback guard (`capture_guard`), all on the same device:
+
+| Level | Screenshot taken with VOLUME_DOWN + POWER | Recording started from another app |
+| --- | --- | --- |
+| `0` | app's `onScreenCaptured` fires | app's `onScreenRecordingStateChanged(true)` fires |
+| `observe` | fires, and the module records `capture n=…` | fires, and the module records `recording … visible=1` |
+| `1` | does **not** fire (three shots in a row, count stayed at 0) | does **not** fire, while `dumpsys window` still reports the uid as visible in the recording |
+
+Switching between `0` and `1` through `plan.sh` alone leaves the hook unchanged
+(`/data/system/noshot_guard` reports `restart`); `setprop ctl.restart zygote`
+applies it. An install after a restart is not counted by the loop guard, and the
+fuse written by three quick retries during development was cleared by hand.
 
 ## License
 

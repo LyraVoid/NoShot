@@ -22,7 +22,9 @@ NoShot Zygisk 按应用解除截屏限制（`FLAG_SECURE`），让你勾选的�
 - `client` 同时覆盖 `SurfaceControl` 的 `Transaction.setSecure` 与
   `Builder.setSecure(true)` 创建参数里的 `SECURE`。
 - 可选：拒绝截图目录的 `inotify` 监视（需要 API v4 宿主）。
-- 开机循环保护：连续两次未能正常完成开机，系统侧会自动停用。
+- 可选：屏蔽 Android 14+ 的截屏/录屏检测回调（`capture_guard`），并提供只记录不屏蔽的观察档。
+- 开机循环保护：同一次开机里三次快速安装、中间没有健康运行时间，系统侧会自动停用；
+  如果开机已稳定运行一分钟以上，主动 `ctl.restart zygote` 会清零计数。
 - WebUI：应用勾选（搜索、分身筛选）、独立的处理方式页、显示当前生效方式的状态卡、
   运行日志、诊断信息、配色与语言。
 
@@ -66,6 +68,7 @@ Window.setFlags(FLAG_SECURE)
 | `/data/system/noshot_plan` | 供 `system_server` 读取的选择（自动生成） |
 | `/data/adb/noshot_zygisk/mode` | 系统侧报告的处理方式（自动生成） |
 | `/data/system/noshot_state` | 系统侧的启动决策记录（自动生成，最多 8 KB） |
+| `/data/system/noshot_guard` | 检测回调状态：`on` / `observe` / `off` / `unsupported`（自动生成） |
 
 ```
 # noshot:2:2
@@ -89,6 +92,7 @@ flag_secure=1       # client：在 binder 事务里清 FLAG_SECURE
 surface_secure=1    # client：SurfaceControl SECURE / SKIP_SCREENSHOT
 detect_guard=1      # client：拒绝截图目录的 inotify 监视
 system_hook=1       # system：在 system_server 里处理
+capture_guard=0     # system：0 关闭，observe 只记录，1 屏蔽通知
 log=1               # 写日志（tag: NoShot）
 ```
 
@@ -98,7 +102,7 @@ log=1               # 写日志（tag: NoShot）
 | --- | --- |
 | `system_hook=0` | 关闭系统侧，所有已选应用改走应用内 hook |
 | `/data/adb/noshot_zygisk/disable_system` | 同上，不用改配置 |
-| `/data/system/noshot_disable` | 连续两次开机失败后由模块自己写入 |
+| `/data/system/noshot_disable` | 同一次开机里三次快速安装失败后由模块自己写入 |
 
 ## 构建
 
@@ -133,8 +137,12 @@ SKIP_WEB=1 ./scripts/build.sh
 
 ## 已知边界
 
-1. 不处理 Android 14+ 的 `registerScreenCaptureCallback` 检测；原生出站事务改写这条路线会先单独验证，
-   通得过就不再考虑 ART 层。
+1. Android 14+ 的 `registerScreenCaptureCallback` 检测只由系统侧的 `capture_guard` 覆盖：
+   按接口描述符识别回调事务，档位为 `1` 时在离开 `system_server` 前丢弃。默认关闭，
+   档位是 `0`（关闭）、`observe`（只写日志与状态文件，不改动）和 `1`（屏蔽通知）。
+   认不出的 parcel 布局原样放行。它作用于整个系统而不是单个应用：回调 parcel 里带着目标 binder，
+   但不带目标应用的身份。hook 在开机时安装，所以从 `0` 打开需要重启框架
+   （`setprop ctl.restart zygote`）；在 `observe` 与 `1` 之间切换则对下一次回调就生效。不涉及 ART hook。
 2. `Builder.setSecure(true)` 由 `client` 方式覆盖；`system` 方式只覆盖 `WindowManager` 创建的图层，
    应用自己创建的表面不在其职责内。
 3. 应用自己读取 `getAttributes().flags` 仍能看到 `FLAG_SECURE`。这是有意为之：应用看到的就是它自己设的值。
@@ -160,6 +168,17 @@ OnePlus 13T / Android 17（API 37）/ arm64，Zygisk API v4 宿主：
 - 同一次开机里 `client` 与 `system` 两种模式可同时工作；
 - `system_hook=0` 时全部退回应用内 hook；
 - 改配置后新建窗口即生效，无需重启。
+
+检测回调屏蔽（`capture_guard`），同一台设备实测：
+
+| 档位 | 音量下 + 电源键截图 | 从别的应用开始录屏 |
+| --- | --- | --- |
+| `0` | 应用的 `onScreenCaptured` 触发 | 应用的 `onScreenRecordingStateChanged(true)` 触发 |
+| `observe` | 触发，模块同时记录 `capture n=…` | 触发，模块同时记录 `recording … visible=1` |
+| `1` | **不**触发（连拍三次，计数保持 0） | **不**触发，而 `dumpsys window` 里该 uid 仍标记为在录屏中可见 |
+
+只改 `plan.sh` 在 `0` 与 `1` 之间切换不会立刻生效（`/data/system/noshot_guard` 报 `restart`），
+要 `setprop ctl.restart zygote`；重启后的安装不计入熔断，开发过程中三次快速重试写进去的熔断已手动清掉。
 
 ## 许可
 
