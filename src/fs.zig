@@ -37,6 +37,35 @@ pub fn close(fd: linux.fd_t) void {
     _ = linux.close(fd);
 }
 
+/// Create or truncate `path` and write `bytes`. Used for the small state files
+/// the module keeps for itself.
+pub fn writeFile(path: []const u8, bytes: []const u8) bool {
+    var zbuf: [max_path]u8 = undefined;
+    const z = toZ(path, &zbuf) catch return false;
+    const rc = linux.openat(linux.AT.FDCWD, z, .{ .ACCMODE = .WRONLY, .CREAT = true, .TRUNC = true, .CLOEXEC = true }, 0o644);
+    if (linux.errno(rc) != .SUCCESS) return false;
+    const fd: linux.fd_t = @intCast(rc);
+    defer close(fd);
+    return writeAllFd(fd, bytes);
+}
+
+pub fn exists(path: []const u8) bool {
+    const fd = openRead(path) catch return false;
+    close(fd);
+    return true;
+}
+
+/// Append diagnostics without disturbing existing content.
+pub fn appendFile(path: []const u8, bytes: []const u8) bool {
+    var zbuf: [max_path]u8 = undefined;
+    const z = toZ(path, &zbuf) catch return false;
+    const rc = linux.openat(linux.AT.FDCWD, z, .{ .ACCMODE = .WRONLY, .CREAT = true, .APPEND = true, .CLOEXEC = true }, 0o644);
+    if (linux.errno(rc) != .SUCCESS) return false;
+    const fd: linux.fd_t = @intCast(rc);
+    defer close(fd);
+    return writeAllFd(fd, bytes);
+}
+
 /// Read up to `max` bytes into a newly allocated slice.
 /// Returns null when the file cannot be opened.
 pub fn readAlloc(alloc: std.mem.Allocator, path: []const u8, max: usize) (Error || std.mem.Allocator.Error)!?[]u8 {

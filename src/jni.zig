@@ -36,6 +36,8 @@ pub const idx = struct {
     pub const CallBooleanMethod = 37;
     pub const CallIntMethod = 49;
     pub const CallVoidMethod = 61;
+    pub const CallStaticIntMethod = 129;
+    pub const CallStaticVoidMethod = 141;
     pub const GetStaticMethodID = 113;
     pub const GetFieldID = 94;
     pub const GetLongField = 101;
@@ -60,6 +62,7 @@ pub const CallObjectMethodFn = *const fn (*JNIEnv, jobject, jmethodID, ...) call
 pub const CallBooleanMethodFn = *const fn (*JNIEnv, jobject, jmethodID, ...) callconv(.c) jboolean;
 pub const CallIntMethodFn = *const fn (*JNIEnv, jobject, jmethodID, ...) callconv(.c) jint;
 pub const CallVoidMethodFn = *const fn (*JNIEnv, jobject, jmethodID, ...) callconv(.c) void;
+pub const CallStaticVoidMethodFn = *const fn (*JNIEnv, jclass, jmethodID, ...) callconv(.c) void;
 pub const NewStringUTFfn = *const fn (*JNIEnv, [*:0]const u8) callconv(.c) jstring;
 pub const GetStringUTFCharsFn = *const fn (*JNIEnv, jstring, ?*jboolean) callconv(.c) ?[*:0]const u8;
 pub const ReleaseStringUTFCharsFn = *const fn (*JNIEnv, jstring, [*:0]const u8) callconv(.c) void;
@@ -115,6 +118,11 @@ pub fn callBooleanMethod(env: *JNIEnv, obj: jobject, mid: jmethodID, args: anyty
 pub fn callVoidMethod(env: *JNIEnv, obj: jobject, mid: jmethodID, args: anytype) void {
     const f = get(env, idx.CallVoidMethod, CallVoidMethodFn) orelse return;
     @call(.auto, f, .{ env, obj, mid } ++ args);
+}
+
+pub fn callStaticVoidMethod(env: *JNIEnv, cls: jclass, mid: jmethodID, args: anytype) void {
+    const f = get(env, idx.CallStaticVoidMethod, CallStaticVoidMethodFn) orelse return;
+    @call(.auto, f, .{ env, cls, mid } ++ args);
 }
 
 pub fn newGlobalRef(env: *JNIEnv, obj: jobject) jobject {

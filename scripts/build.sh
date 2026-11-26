@@ -62,7 +62,7 @@ cat > "$STAGE/webroot/version.json" <<EOF
 {"name":"NoShot WebUI","version":"$VERSION","native":"zig","ui":"react+mantine-m3e"}
 EOF
 
-chmod 755 "$STAGE/customize.sh" "$STAGE/post-fs-data.sh" "$STAGE/service.sh"
+chmod 755 "$STAGE/customize.sh" "$STAGE/post-fs-data.sh" "$STAGE/service.sh" "$STAGE/plan.sh"
 chmod 644 "$STAGE/module.prop" "$STAGE"/webroot/* 2>/dev/null || true
 chmod 755 "$STAGE/webroot" "$STAGE/zygisk"
 chmod 644 "$STAGE/zygisk/"*.so "$STAGE"/config/* 2>/dev/null || true

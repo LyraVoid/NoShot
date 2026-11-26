@@ -29,7 +29,7 @@ fn send(prio: u8, text: []const u8) void {
     @memcpy(path[0..socket_path.len], socket_path);
     const addr: linux.sockaddr.un = .{ .family = linux.AF.UNIX, .path = path };
 
-    const rc = linux.socket(linux.AF.UNIX, linux.SOCK.DGRAM | linux.SOCK.CLOEXEC, 0);
+    const rc = linux.socket(linux.AF.UNIX, linux.SOCK.DGRAM | linux.SOCK.CLOEXEC | linux.SOCK.NONBLOCK, 0);
     if (linux.errno(rc) != .SUCCESS) return;
     const fd: linux.fd_t = @intCast(rc);
     defer _ = linux.close(fd);

@@ -17,12 +17,15 @@ ui_print "----------------------------------------"
 
 # 1) Config lives outside the module so updates keep the user selection.
 mkdir -p "$CONF_DIR"
-[ -f "$CONF_FILE" ] || printf '# noshot:1:0\n' > "$CONF_FILE"
+[ -f "$CONF_FILE" ] || printf '# noshot:2:0\n' > "$CONF_FILE"
 [ -f "$SETTINGS_FILE" ] || {
-    printf '# noshot settings v1\nflag_secure=1\nsurface_secure=1\ndetect_guard=1\nlog=1\n' > "$SETTINGS_FILE"
+    printf '# noshot settings v2\nflag_secure=1\nsurface_secure=1\ndetect_guard=1\nsystem_hook=1\nlog=1\n' > "$SETTINGS_FILE"
 }
 chmod 0755 "$CONF_DIR"
 chmod 0644 "$CONF_FILE" "$SETTINGS_FILE"
+
+# 1b) Resolve the selection system_server reads.
+sh "$MODPATH/plan.sh" 2>/dev/null
 
 # 2) Example config shipped inside the module.
 mkdir -p "$MODPATH/config"
@@ -33,7 +36,7 @@ set_perm_recursive "$MODPATH" 0 0 0755 0644
 [ -d "$MODPATH/zygisk" ]  && set_perm_recursive "$MODPATH/zygisk" 0 0 0755 0644
 
 # 4) Scripts.
-for f in post-fs-data.sh service.sh; do
+for f in post-fs-data.sh service.sh plan.sh; do
     [ -f "$MODPATH/$f" ] && set_perm "$MODPATH/$f" 0 0 0755
 done
 

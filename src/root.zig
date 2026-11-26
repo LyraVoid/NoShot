@@ -1,8 +1,9 @@
 //! NoShot Zygisk: per-app FLAG_SECURE remover.
 //!
 //! Native side: Zygisk entry points, per-process gating, JNI hooks and a root
-//! companion. The SECURE bit is cleared inside the outgoing binder parcel, so
-//! no ART hooking or embedded dex is involved.
+//! companion. Selected apps are handled inside system_server (no code change in
+//! the app at all); the in-process binder hook remains for the apps that opt
+//! into it.
 
 const std = @import("std");
 const linux = std.os.linux;
@@ -16,6 +17,7 @@ const log = @import("log.zig");
 const parcel = @import("parcel.zig");
 const surface = @import("surface.zig");
 const inotify = @import("inotify.zig");
+const system = @import("system.zig");
 
 const COMPANION_CONF = "CONF";
 const COMPANION_SETTINGS = "SETTINGS";
@@ -25,6 +27,8 @@ var g_env: ?*jni.JNIEnv = null;
 
 var g_settings: cfg.Settings = .{};
 var g_is_target: bool = false;
+var g_app_mode: cfg.Mode = .system;
+var g_client_hooks: bool = true;
 /// True only when the host accepted API v4 (dev/inode PLT table).
 var g_plt_available: bool = false;
 
@@ -145,10 +149,21 @@ fn preAppSpecialize(_: ?*anyopaque, args: *api.AppSpecializeArgs) callconv(.c) v
 
     const targets = loadTargets(alloc) orelse &.{};
     g_is_target = cfg.matches(targets, pkg, uid);
+    g_app_mode = cfg.modeOf(targets, pkg, uid) orelse .system;
+    // The app's credentials are still privileged here; postAppSpecialize can no
+    // longer read /data/adb, so the decision is taken now.
+    g_client_hooks = clientHooksNeeded();
 
-    log.info("pre proc={s} uid={d} target={d} cfg=(flag={d} surface={d} detect={d} log={d})", .{
-        pkg,                                  uid,                                     @intFromBool(g_is_target),
-        @intFromBool(g_settings.flag_secure), @intFromBool(g_settings.surface_secure), @intFromBool(g_settings.detect_guard),
+    log.info("pre proc={s} uid={d} target={d} mode={s} client={d} cfg=(flag={d} surface={d} detect={d} system={d} log={d})", .{
+        pkg,
+        uid,
+        @intFromBool(g_is_target),
+        @tagName(g_app_mode),
+        @intFromBool(g_client_hooks),
+        @intFromBool(g_settings.flag_secure),
+        @intFromBool(g_settings.surface_secure),
+        @intFromBool(g_settings.detect_guard),
+        @intFromBool(g_settings.system_hook),
         @intFromBool(g_settings.log),
     });
 
@@ -161,6 +176,11 @@ fn postAppSpecialize(_: ?*anyopaque, _: *const api.AppSpecializeArgs) callconv(.
     const table = g_table orelse return;
     const env = g_env orelse return;
     if (!g_is_target) return;
+
+    if (!g_client_hooks) {
+        log.info("post proc={s} handled by system_server", .{g_process[0..g_process_len]});
+        return;
+    }
 
     var hooks: usize = 0;
     if (g_settings.flag_secure) {
@@ -187,11 +207,32 @@ fn postAppSpecialize(_: ?*anyopaque, _: *const api.AppSpecializeArgs) callconv(.
     log.info("post proc={s} hooks={d}", .{ g_process[0..g_process_len], hooks });
 }
 
-fn preServerSpecialize(_: ?*anyopaque, _: *api.ServerSpecializeArgs) callconv(.c) void {
-    // system_server is intentionally left alone: patches are per-app.
+fn preServerSpecialize(_: ?*anyopaque, _: *api.ServerSpecializeArgs) callconv(.c) void {}
+
+fn postServerSpecialize(_: ?*anyopaque, _: *const api.ServerSpecializeArgs) callconv(.c) void {
+    const table = g_table orelse return;
+    const env = g_env orelse return;
+    _ = system.install(table, env);
 }
 
-fn postServerSpecialize(_: ?*anyopaque, _: *const api.ServerSpecializeArgs) callconv(.c) void {}
+/// `pkg|client` apps, and every app when the system side is unavailable, keep
+/// the in-process hook. The system side publishes its state to
+/// `/data/adb/noshot_zygisk/mode` through the root scripts.
+fn clientHooksNeeded() bool {
+    if (g_app_mode == .client) return true;
+    if (!g_settings.system_hook) {
+        log.warn("system_hook=0, falling back to the in-process hook", .{});
+        return true;
+    }
+    var buf: [16]u8 = undefined;
+    for (cfg.app_mode_paths) |path| {
+        const text = fs.readFixed(path, &buf) orelse continue;
+        if (std.mem.eql(u8, std.mem.trim(u8, text, " \t\r\n"), "system")) return false;
+        break;
+    }
+    log.warn("system_server side inactive or unknown, falling back to the in-process hook", .{});
+    return true;
+}
 
 // ---------------------------------------------------------------------------
 // Configuration loading
@@ -295,9 +336,15 @@ fn loadSettings(alloc: std.mem.Allocator) cfg.Settings {
 
 fn readCompanion(alloc: std.mem.Allocator, request: []const u8) ?[]u8 {
     const table = g_table orelse return null;
-    const connect = table.connect_companion orelse return null;
+    const connect = table.connect_companion orelse {
+        log.warn("companion {s}: no connect_companion", .{request});
+        return null;
+    };
     const fd = connect(table.impl);
-    if (fd < 0) return null;
+    if (fd < 0) {
+        log.warn("companion {s}: connect failed ({d})", .{ request, fd });
+        return null;
+    }
     defer fs.close(@intCast(fd));
 
     var lenbuf: [4]u8 = undefined;
@@ -305,9 +352,15 @@ fn readCompanion(alloc: std.mem.Allocator, request: []const u8) ?[]u8 {
     if (!fs.writeAllFd(@intCast(fd), &lenbuf)) return null;
     if (!fs.writeAllFd(@intCast(fd), request)) return null;
 
-    if (fs.readSome(@intCast(fd), &lenbuf) != 4) return null;
+    if (fs.readSome(@intCast(fd), &lenbuf) != 4) {
+        log.warn("companion {s}: no reply length", .{request});
+        return null;
+    }
     const len = std.mem.readInt(u32, &lenbuf, .little);
-    if (len == 0 or len > cfg.max_config_bytes) return null;
+    if (len == 0 or len > cfg.max_config_bytes) {
+        log.warn("companion {s}: reply length {d}", .{ request, len });
+        return null;
+    }
 
     const buf = alloc.alloc(u8, len) catch return null;
     if (fs.readSome(@intCast(fd), buf) != len) return null;

@@ -13,12 +13,16 @@
 //! detected. `# ui:` lines carry the WebUI's per-user selection and are
 //! ignored by the native side.
 //!
-//! Besides plain package names we accept `pkg|u999` for a per-user rule.
+//! Besides plain package names we accept `pkg|u999` for a per-user rule and
+//! `pkg|client` / `pkg|u999|client` to keep that app on the in-process hook.
 //! The React UI writes plain names by default.
 
 const std = @import("std");
 
 pub const max_config_bytes = 1 << 20;
+pub const max_system_uids = 512;
+pub const max_system_pkgs = 64;
+pub const max_pkg_bytes = 96;
 
 pub const target_paths = [_][]const u8{
     "/data/adb/noshot_zygisk/allow.list",
@@ -30,20 +34,121 @@ pub const settings_paths = [_][]const u8{
     "/data/adb/modules/noshot_zygisk/settings.conf",
 };
 
+/// State files system_server can read and write on its own.
+pub const mode_path = "/data/system/noshot_mode";
+/// Selection resolved by the root side (uid list), the only copy system_server
+/// is able to read.
+pub const plan_path = "/data/system/noshot_plan";
+/// system_server's state copied where app processes can read it. Same fallback
+/// order as the config files: some ROMs deny zygote access to /data/adb.
+pub const app_mode_paths = [_][]const u8{
+    "/data/system/noshot_mode",
+    "/data/adb/noshot_zygisk/mode",
+    "/data/adb/modules/noshot_zygisk/mode",
+};
+pub const attempt_path = "/data/system/noshot_attempt";
+pub const disable_path = "/data/system/noshot_disable";
+
+/// User-visible switch; system_server cannot read /data/adb, the companion
+/// folds it into the `hook` flag it reports.
+pub const user_disable_path = "/data/adb/noshot_zygisk/disable_system";
+
 pub const FLAG_SECURE: i32 = 0x2000;
 
 pub const Target = struct {
     pkg: []const u8,
     /// null = all users, otherwise the Android user id (e.g. 0 or 999)
     user: ?u32 = null,
+    mode: Mode = .system,
 };
+
+pub const Mode = enum { system, client };
 
 pub const Settings = struct {
     flag_secure: bool = true,
     surface_secure: bool = true,
     detect_guard: bool = true,
+    system_hook: bool = true,
     log: bool = true,
 };
+
+/// `SYSCONF` reply from the root companion: the resolved inputs of the
+/// system_server side. Parsed into fixed storage, never allocated.
+pub const SystemConf = struct {
+    hook: bool = true,
+    log: bool = true,
+    gen: i64 = 0,
+    uid_count: usize = 0,
+    pkg_count: usize = 0,
+    uids: [max_system_uids]u32 = undefined,
+    pkgs: [max_system_pkgs][max_pkg_bytes]u8 = undefined,
+    pkg_lens: [max_system_pkgs]u8 = @splat(0),
+
+    pub fn pkgAt(self: *const SystemConf, i: usize) []const u8 {
+        return self.pkgs[i][0..self.pkg_lens[i]];
+    }
+
+    pub fn addUid(self: *SystemConf, uid: u32) void {
+        if (self.uid_count == self.uids.len) return;
+        for (self.uids[0..self.uid_count]) |u| if (u == uid) return;
+        self.uids[self.uid_count] = uid;
+        self.uid_count += 1;
+    }
+
+    pub fn addPkg(self: *SystemConf, pkg: []const u8) void {
+        if (self.pkg_count == self.pkgs.len or pkg.len == 0 or pkg.len > max_pkg_bytes) return;
+        for (0..self.pkg_count) |i| {
+            if (std.mem.eql(u8, self.pkgAt(i), pkg)) return;
+        }
+        @memcpy(self.pkgs[self.pkg_count][0..pkg.len], pkg);
+        self.pkg_lens[self.pkg_count] = @intCast(pkg.len);
+        self.pkg_count += 1;
+    }
+
+    pub fn hasUid(self: *const SystemConf, uid: u32) bool {
+        for (self.uids[0..self.uid_count]) |u| if (u == uid) return true;
+        return false;
+    }
+
+    /// Window layer names carry "<pkg>/<activity>"; used when the metadata
+    /// owner is unavailable.
+    pub fn nameMatches(self: *const SystemConf, name: []const u8) bool {
+        for (0..self.pkg_count) |i| {
+            const p = self.pkgAt(i);
+            if (std.mem.indexOf(u8, name, p)) |at| {
+                const end = at + p.len;
+                if (end == name.len or name[end] == '/' or name[end] == ' ' or name[end] == ':') return true;
+            }
+        }
+        return false;
+    }
+};
+
+pub fn parseSystemConf(out: *SystemConf, text: []const u8) void {
+    out.hook = true;
+    out.log = true;
+    out.gen = 0;
+    out.uid_count = 0;
+    out.pkg_count = 0;
+    var lines = std.mem.splitScalar(u8, text, '\n');
+    while (lines.next()) |raw| {
+        const line = std.mem.trim(u8, raw, " \t\r");
+        const eq = std.mem.indexOfScalar(u8, line, '=') orelse continue;
+        const key = line[0..eq];
+        const val = line[eq + 1 ..];
+        if (std.mem.eql(u8, key, "hook")) {
+            out.hook = std.mem.eql(u8, val, "1");
+        } else if (std.mem.eql(u8, key, "log")) {
+            out.log = std.mem.eql(u8, val, "1");
+        } else if (std.mem.eql(u8, key, "gen")) {
+            out.gen = std.fmt.parseInt(i64, val, 10) catch 0;
+        } else if (std.mem.eql(u8, key, "uid")) {
+            if (std.fmt.parseInt(u32, val, 10) catch null) |uid| out.addUid(uid);
+        } else if (std.mem.eql(u8, key, "pkg")) {
+            if (isPackageName(val)) out.addPkg(val);
+        }
+    }
+}
 
 pub const ParseResult = struct {
     targets: []Target,
@@ -108,13 +213,28 @@ pub fn parseTargets(alloc: std.mem.Allocator, text: []const u8) !ParseResult {
 
         var pkg = line;
         var user: ?u32 = null;
+        var mode: Mode = .system;
         if (std.mem.indexOfScalar(u8, line, '|')) |bar| {
             pkg = std.mem.trim(u8, line[0..bar], " \t");
-            user = parseUserSuffix(std.mem.trim(u8, line[bar + 1 ..], " \t")) orelse continue;
+            var rest = line[bar + 1 ..];
+            while (rest.len > 0) {
+                const next = std.mem.indexOfScalar(u8, rest, '|');
+                const field = std.mem.trim(u8, if (next) |n| rest[0..n] else rest, " \t");
+                rest = if (next) |n| rest[n + 1 ..] else "";
+                if (field.len == 0) continue;
+                if (std.ascii.eqlIgnoreCase(field, "client")) {
+                    mode = .client;
+                } else if (parseUserSuffix(field)) |u| {
+                    user = u;
+                } else {
+                    pkg = "";
+                    break;
+                }
+            }
         }
         if (!isPackageName(pkg)) continue;
 
-        try list.append(alloc, .{ .pkg = pkg, .user = user });
+        try list.append(alloc, .{ .pkg = pkg, .user = user, .mode = mode });
         counted += 1;
     }
 
@@ -145,6 +265,8 @@ pub fn parseSettings(text: []const u8) Settings {
             s.surface_secure = on;
         } else if (std.mem.eql(u8, key, "detect_guard")) {
             s.detect_guard = on;
+        } else if (std.mem.eql(u8, key, "system_hook")) {
+            s.system_hook = on;
         } else if (std.mem.eql(u8, key, "log")) {
             s.log = on;
         }
@@ -165,15 +287,20 @@ pub fn userIdOf(uid: i32) u32 {
 }
 
 pub fn matches(targets: []const Target, pkg: []const u8, uid: i32) bool {
+    return modeOf(targets, pkg, uid) != null;
+}
+
+/// Patch mode of the first matching rule; null when the app is not selected.
+pub fn modeOf(targets: []const Target, pkg: []const u8, uid: i32) ?Mode {
     const user = userIdOf(uid);
     for (targets) |t| {
         if (!std.mem.eql(u8, t.pkg, pkg)) continue;
         if (t.user) |tu| {
             if (tu != user) continue;
         }
-        return true;
+        return t.mode;
     }
-    return false;
+    return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -255,4 +382,53 @@ test "settings" {
     try std.testing.expect(s.surface_secure);
     try std.testing.expect(!s.detect_guard);
     try std.testing.expect(s.log);
+    try std.testing.expect(s.system_hook);
+    try std.testing.expect(!parseSettings("system_hook=0\n").system_hook);
+}
+
+test "per-app patch mode" {
+    const text =
+        \\# noshot:2:3
+        \\com.plain
+        \\com.bank|u999|client
+        \\com.player|client
+    ;
+    const r = try parseTargets(std.testing.allocator, text);
+    defer std.testing.allocator.free(r.targets);
+    try std.testing.expect(r.valid);
+    try std.testing.expectEqual(@as(usize, 3), r.targets.len);
+    try std.testing.expectEqual(Mode.system, r.targets[0].mode);
+    try std.testing.expectEqual(Mode.client, r.targets[1].mode);
+    try std.testing.expectEqual(@as(?u32, 999), r.targets[1].user);
+    try std.testing.expectEqual(Mode.client, r.targets[2].mode);
+    try std.testing.expectEqual(@as(?Mode, .client), modeOf(r.targets, "com.player", 10123));
+    try std.testing.expectEqual(@as(?Mode, .system), modeOf(r.targets, "com.plain", 10123));
+    try std.testing.expectEqual(@as(?Mode, null), modeOf(r.targets, "com.other", 10123));
+}
+
+test "unknown rule suffix drops the line" {
+    const r = try parseTargets(std.testing.allocator, "# noshot:1:0\ncom.a|bogus\n");
+    defer std.testing.allocator.free(r.targets);
+    try std.testing.expectEqual(@as(usize, 0), r.targets.len);
+    try std.testing.expect(r.valid);
+}
+
+test "companion system config" {
+    var c: SystemConf = undefined;
+    parseSystemConf(&c, "hook=1\ngen=42\nuid=10123\nuid=10456\nuid=10123\npkg=com.bank\n");
+    try std.testing.expect(c.hook);
+    try std.testing.expectEqual(@as(i64, 42), c.gen);
+    try std.testing.expectEqual(@as(usize, 2), c.uid_count);
+    try std.testing.expect(c.hasUid(10456));
+    try std.testing.expect(!c.hasUid(999));
+    try std.testing.expectEqual(@as(usize, 1), c.pkg_count);
+    try std.testing.expect(c.nameMatches("bank:com.bank/com.bank.Main"));
+    try std.testing.expect(!c.nameMatches("com.banking.fake"));
+    try std.testing.expect(!parseSystemConfHookOff());
+}
+
+fn parseSystemConfHookOff() bool {
+    var c: SystemConf = undefined;
+    parseSystemConf(&c, "hook=0\n");
+    return c.hook;
 }
