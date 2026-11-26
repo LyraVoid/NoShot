@@ -3,6 +3,7 @@
 const std = @import("std");
 const linux = std.os.linux;
 const cfg = @import("config.zig");
+const outbound = @import("outbound.zig");
 
 fn readFile(alloc: std.mem.Allocator, path: []const u8) ![]u8 {
     var zbuf: [512]u8 = undefined;
@@ -63,5 +64,22 @@ pub fn main() !void {
     const good = [7]i32{ 1, -1, -1, 0, 0, 1, 0x2000 | 0x400 };
     const bad = [7]i32{ 1, -1, -1, 0, 0, 1, 0x400 };
     std.debug.print("parcel good={} bad={}\n", .{ looksLikeLayoutParams(good), looksLikeLayoutParams(bad) });
+
+    // The callback matcher is pure, so it can be checked without a capture.
+    var parcel: [160]u8 = @splat(0);
+    writeToken(&parcel, 12, "android.window.IScreenRecordingCallback");
+    std.mem.writeInt(i32, parcel[96..100], 1, .little);
+    const found = outbound.locateIn(&parcel);
+    std.debug.print("callback matcher recording={} value={d}\n", .{
+        found != null and found.?.kind == .recording,
+        if (found) |f| f.value else -1,
+    });
     std.debug.print("selftest done\n", .{});
+}
+
+fn writeToken(buf: []u8, slot: usize, text: []const u8) void {
+    std.mem.writeInt(i32, buf[slot..][0..4], @intCast(text.len), .little);
+    for (text, 0..) |c, i| {
+        std.mem.writeInt(u16, buf[slot + 4 + i * 2 ..][0..2], c, .little);
+    }
 }

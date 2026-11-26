@@ -70,6 +70,21 @@ pub const Settings = struct {
     detect_guard: bool = true,
     system_hook: bool = true,
     log: bool = true,
+    /// Capture/recording callback handling on the system side.
+    capture_guard: CaptureGuard = .off,
+};
+
+/// 0/off, `observe` (count only), 1/on (drop the notifications).
+pub const CaptureGuard = enum {
+    off,
+    observe,
+    on,
+
+    pub fn parse(v: []const u8) CaptureGuard {
+        if (std.ascii.eqlIgnoreCase(v, "observe")) return .observe;
+        const on = std.mem.eql(u8, v, "1") or std.ascii.eqlIgnoreCase(v, "true") or std.ascii.eqlIgnoreCase(v, "on");
+        return if (on) .on else .off;
+    }
 };
 
 /// `SYSCONF` reply from the root companion: the resolved inputs of the
@@ -78,6 +93,7 @@ pub const SystemConf = struct {
     hook: bool = true,
     log: bool = true,
     gen: i64 = 0,
+    capture: CaptureGuard = .off,
     uid_count: usize = 0,
     pkg_count: usize = 0,
     uids: [max_system_uids]u32 = undefined,
@@ -128,6 +144,7 @@ pub fn parseSystemConf(out: *SystemConf, text: []const u8) void {
     out.hook = true;
     out.log = true;
     out.gen = 0;
+    out.capture = .off;
     out.uid_count = 0;
     out.pkg_count = 0;
     var lines = std.mem.splitScalar(u8, text, '\n');
@@ -140,6 +157,8 @@ pub fn parseSystemConf(out: *SystemConf, text: []const u8) void {
             out.hook = std.mem.eql(u8, val, "1");
         } else if (std.mem.eql(u8, key, "log")) {
             out.log = std.mem.eql(u8, val, "1");
+        } else if (std.mem.eql(u8, key, "capture")) {
+            out.capture = CaptureGuard.parse(val);
         } else if (std.mem.eql(u8, key, "gen")) {
             out.gen = std.fmt.parseInt(i64, val, 10) catch 0;
         } else if (std.mem.eql(u8, key, "uid")) {
@@ -269,6 +288,8 @@ pub fn parseSettings(text: []const u8) Settings {
             s.system_hook = on;
         } else if (std.mem.eql(u8, key, "log")) {
             s.log = on;
+        } else if (std.mem.eql(u8, key, "capture_guard")) {
+            s.capture_guard = CaptureGuard.parse(val);
         }
     }
     return s;
@@ -384,6 +405,23 @@ test "settings" {
     try std.testing.expect(s.log);
     try std.testing.expect(s.system_hook);
     try std.testing.expect(!parseSettings("system_hook=0\n").system_hook);
+}
+
+test "capture guard off by default" {
+    try std.testing.expectEqual(CaptureGuard.off, parseSettings("").capture_guard);
+    try std.testing.expectEqual(CaptureGuard.observe, parseSettings("capture_guard=observe\n").capture_guard);
+    try std.testing.expectEqual(CaptureGuard.on, parseSettings("capture_guard=1\n").capture_guard);
+    try std.testing.expectEqual(CaptureGuard.on, parseSettings("capture_guard=on\n").capture_guard);
+    try std.testing.expectEqual(CaptureGuard.off, parseSettings("capture_guard=0\n").capture_guard);
+    try std.testing.expectEqual(CaptureGuard.off, parseSettings("capture_guard=bogus\n").capture_guard);
+}
+
+test "plan carries the capture guard" {
+    var c: SystemConf = undefined;
+    parseSystemConf(&c, "hook=1\ncapture=observe\ngen=7\n");
+    try std.testing.expectEqual(CaptureGuard.observe, c.capture);
+    parseSystemConf(&c, "hook=1\n");
+    try std.testing.expectEqual(CaptureGuard.off, c.capture);
 }
 
 test "per-app patch mode" {

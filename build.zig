@@ -37,10 +37,10 @@ pub fn build(b: *std.Build) void {
         install.dependOn(&step.step);
     }
 
-    // Unit tests for the pure parser (runs on the host).
+    // Unit tests for the pure parsers (runs on the host).
     const tests = b.addTest(.{
         .root_module = b.createModule(.{
-            .root_source_file = b.path("src/config.zig"),
+            .root_source_file = b.path("src/tests.zig"),
             .target = b.graph.host,
             .optimize = .Debug,
         }),

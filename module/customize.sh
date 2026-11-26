@@ -19,7 +19,7 @@ ui_print "----------------------------------------"
 mkdir -p "$CONF_DIR"
 [ -f "$CONF_FILE" ] || printf '# noshot:2:0\n' > "$CONF_FILE"
 [ -f "$SETTINGS_FILE" ] || {
-    printf '# noshot settings v2\nflag_secure=1\nsurface_secure=1\ndetect_guard=1\nsystem_hook=1\nlog=1\n' > "$SETTINGS_FILE"
+    printf '# noshot settings v2\nflag_secure=1\nsurface_secure=1\ndetect_guard=1\nsystem_hook=1\ncapture_guard=0\nlog=1\n' > "$SETTINGS_FILE"
 }
 chmod 0755 "$CONF_DIR"
 chmod 0644 "$CONF_FILE" "$SETTINGS_FILE"

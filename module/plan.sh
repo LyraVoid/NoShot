@@ -23,13 +23,23 @@ grep -qs '^system_hook=0' "$SETTINGS_FILE" && hook=0
 [ -e "$CONF_DIR/disable_system" ] && hook=0
 log=1
 grep -qs '^log=0' "$SETTINGS_FILE" && log=0
+capture=off
+case "$(grep -s '^capture_guard=' "$SETTINGS_FILE" | tail -1 | cut -d= -f2 | tr -d ' \r')" in
+    1|on|true) capture=on ;;
+    observe) capture=observe ;;
+esac
 gen=$(stat -c %Y "$CONF_FILE" 2>/dev/null)
 [ -n "$gen" ] || gen=0
+settings_gen=$(stat -c %Y "$SETTINGS_FILE" 2>/dev/null)
+if [ -n "$settings_gen" ] && [ "$settings_gen" -gt "$gen" ] 2>/dev/null; then
+    gen=$settings_gen
+fi
 
 tmp="$PLAN.tmp"
 {
     echo "hook=$hook"
     echo "log=$log"
+    echo "capture=$capture"
     echo "gen=$gen"
 } > "$tmp" 2>/dev/null || exit 1
 

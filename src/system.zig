@@ -20,23 +20,11 @@ const cfg = @import("config.zig");
 const fs = @import("fs.zig");
 const jni = @import("jni.zig");
 const log = @import("log.zig");
+const outbound = @import("outbound.zig");
+const state = @import("state.zig");
 
 /// SurfaceControl.SECURE, used both as a builder flag and in setSecure().
 const SECURE: i32 = 0x80;
-
-/// Diagnostics: logcat is not reachable from every context, so the boot-time
-/// decisions are also appended here (first lines only, no per-frame writes).
-const state_path = "/data/system/noshot_state";
-const state_limit = 8 * 1024;
-
-var state_len: usize = 0;
-
-fn note(comptime fmt: []const u8, args: anytype) void {
-    if (state_len >= state_limit) return;
-    var buf: [256]u8 = undefined;
-    const text = std.fmt.bufPrint(&buf, fmt ++ "\n", args) catch return;
-    if (fs.appendFile(state_path, text)) state_len += text.len;
-}
 
 /// Marker uid for a layer whose name matched a selected package.
 const SEL_ALL: u32 = std.math.maxInt(u32);
@@ -78,6 +66,10 @@ var plan_ok: bool = false;
 var mode_written: i8 = -1;
 var last_check_ns: i128 = 0;
 var rx: [RX_MAX]u8 = undefined;
+
+/// Last published capture-guard word; the file is rewritten only on change.
+const guard_path = "/data/system/noshot_guard";
+var guard_written: []const u8 = "";
 
 var map_key: [MAP_CAP]i64 = @splat(0);
 var map_uid: [MAP_CAP]u32 = @splat(0);
@@ -167,7 +159,7 @@ fn refresh(force: bool) void {
 
     const text = fs.readFixed(cfg.plan_path, &rx) orelse {
         if (force) log.warn("selection plan unreadable: {s}", .{cfg.plan_path});
-        note("refresh failed: {s} unreadable", .{cfg.plan_path});
+        state.note("refresh failed: {s} unreadable", .{cfg.plan_path});
         plan_ok = false;
         publishMode();
         return;
@@ -176,9 +168,13 @@ fn refresh(force: bool) void {
     cfg.parseSystemConf(&fresh, text);
     plan_ok = fresh.uid_count > 0;
     const changed = fresh.gen != conf_gen or fresh.hook != conf.hook or
-        fresh.uid_count != conf.uid_count;
+        fresh.uid_count != conf.uid_count or fresh.capture != conf.capture;
     conf_gen = fresh.gen;
     conf = fresh;
+    // Kept in sync even when the hook is not installed: the published word
+    // then says "restart" instead of silently claiming the level is active.
+    outbound.setMode(guardMode(conf.capture));
+    publishGuard();
     if (!changed and !force) {
         publishMode();
         return;
@@ -188,7 +184,7 @@ fn refresh(force: bool) void {
     log.info("system config: {d} uids, {d} names, hook={d}", .{
         conf.uid_count, conf.pkg_count, @intFromBool(conf.hook),
     });
-    note("refresh gen={d} hook={d} uids={d} pkgs={d} first={d}", .{
+    state.note("refresh gen={d} hook={d} uids={d} pkgs={d} first={d}", .{
         conf.gen, @intFromBool(conf.hook), conf.uid_count, conf.pkg_count,
         if (conf.uid_count > 0) conf.uids[0] else 0,
     });
@@ -262,9 +258,30 @@ fn publishMode() void {
     if (writeMode(active)) mode_written = value;
 }
 
-/// Counts hook installations per boot. A system_server that dies after the
-/// hook is installed comes back in the same boot, so three attempts without a
-/// reboot disable the system side instead of risking a loop.
+/// Capture-callback status, read back by the WebUI. Separate from the mode file
+/// so existing one-word parsers keep working.
+fn publishGuard() void {
+    const word = outbound.stateWord();
+    if (std.mem.eql(u8, guard_written, word)) return;
+    var buf: [32]u8 = undefined;
+    const text = std.fmt.bufPrint(&buf, "{s}\n", .{word}) catch return;
+    if (fs.writeFile(guard_path, text)) guard_written = word;
+}
+
+/// Counts hook installations per boot. A system_server that dies right after
+/// the hook is installed comes back in the same boot, so three quick attempts
+/// disable the system side instead of risking a loop.
+///
+/// Only quick retries count: an install that follows a stretch of healthy
+/// uptime is a deliberate restart (`ctl.restart zygote`), not a crash loop, and
+/// must not burn the fuse — that restart is the documented way to turn the
+/// capture guard on.
+const stable_gap_s: u64 = 120;
+
+fn uptimeSeconds() u64 {
+    return @intCast(@divTrunc(nowNanos(), std.time.ns_per_s));
+}
+
 fn attemptAllowed() bool {
     if (fs.exists(cfg.disable_path)) return false;
 
@@ -273,13 +290,16 @@ fn attemptAllowed() bool {
     const boot_id = std.mem.trim(u8, boot_raw, " \t\r\n");
     if (boot_id.len == 0) return true;
 
+    const now = uptimeSeconds();
     var stored: [128]u8 = undefined;
     var count: u32 = 0;
     if (fs.readFixed(cfg.attempt_path, &stored)) |text| {
         const saved = std.mem.trim(u8, text, " \t\r\n");
         if (std.mem.startsWith(u8, saved, boot_id)) {
-            const rest = std.mem.trim(u8, saved[boot_id.len..], " ");
-            count = std.fmt.parseInt(u32, rest, 10) catch 0;
+            var fields = std.mem.tokenizeAny(u8, saved[boot_id.len..], " ");
+            count = std.fmt.parseInt(u32, fields.next() orelse "", 10) catch 0;
+            const last = std.fmt.parseInt(u64, fields.next() orelse "", 10) catch 0;
+            if (now > last and now - last > stable_gap_s) count = 0;
         }
     }
 
@@ -290,7 +310,7 @@ fn attemptAllowed() bool {
     }
 
     var out: [160]u8 = undefined;
-    if (std.fmt.bufPrint(&out, "{s} {d}\n", .{ boot_id, count + 1 })) |text| {
+    if (std.fmt.bufPrint(&out, "{s} {d} {d}\n", .{ boot_id, count + 1, now })) |text| {
         _ = fs.writeFile(cfg.attempt_path, text);
     } else |_| {}
     return true;
@@ -330,7 +350,7 @@ fn detectSetFlagsAbi(env: *jni.JNIEnv, hook: *const fn (*jni.JNIEnv, [*:0]const 
 
     set_flags_abi = if (!probe_seen or (probe_args[0] == 0 and probe_args[1] == 0)) .critical else .jni;
     log.info("nativeSetFlags abi: {s} (seen={d})", .{ @tagName(set_flags_abi), @intFromBool(probe_seen) });
-    note("abi={s} seen={d} args={d},{d},{d},{d}", .{
+    state.note("abi={s} seen={d} args={d},{d},{d},{d}", .{
         @tagName(set_flags_abi), @intFromBool(probe_seen),
         probe_args[0], probe_args[1], probe_args[2], probe_args[3],
     });
@@ -342,6 +362,15 @@ fn probeSetFlags(a0: jni.jlong, a1: jni.jlong, a2: jni.jlong, a3: jni.jlong) cal
     probe_seen = true;
 }
 
+/// Turns a requested level into the hook's own mode.
+pub fn guardMode(requested: cfg.CaptureGuard) outbound.Mode {
+    return switch (requested) {
+        .off => .off,
+        .observe => .observe,
+        .on => .suppress,
+    };
+}
+
 fn hookPtr(comptime f: anytype) ?*anyopaque {
     return @ptrCast(@constCast(f));
 }
@@ -349,26 +378,36 @@ fn hookPtr(comptime f: anytype) ?*anyopaque {
 pub fn install(table: *api.ApiTable, env: *jni.JNIEnv) bool {
     if (installed) return true;
 
+    // Read the plan first: even when the hooks are skipped this boot, the
+    // published guard word then says "restart" instead of a stale level.
+    refresh(true);
+
     if (!attemptAllowed()) {
         log.warn("system hook skipped ({s} or too many attempts)", .{cfg.disable_path});
         plan_ok = false;
         publishMode();
+        publishGuard();
         return false;
     }
 
-    refresh(true);
+    const hook = table.hook_jni_native_methods orelse {
+        log.err("host has no hookJniNativeMethods", .{});
+        publishMode();
+        publishGuard();
+        return false;
+    };
+
+    // Independent of the surface hooks: detection callbacks are a separate
+    // concern and stay available while `system_hook=0`.
+    _ = outbound.install(table, env, guardMode(conf.capture));
+    publishGuard();
+
     if (!conf.hook) {
         log.info("system hook off (settings or {s})", .{cfg.user_disable_path});
         publishMode();
         return false;
     }
     if (!resolveParcel(env)) log.warn("Parcel bindings unavailable, owner uid falls back to names", .{});
-
-    const hook = table.hook_jni_native_methods orelse {
-        log.err("host has no hookJniNativeMethods", .{});
-        publishMode();
-        return false;
-    };
 
     orig_set_flags = detectSetFlagsAbi(env, hook);
 
@@ -400,7 +439,7 @@ pub fn install(table: *api.ApiTable, env: *jni.JNIEnv) bool {
             @intFromBool(orig_create != null), @intFromBool(orig_set_flags != null),
         });
     }
-    note("install hook={d} uids={d} pkgs={d} create={d} setFlags={d}", .{
+    state.note("install hook={d} uids={d} pkgs={d} create={d} setFlags={d}", .{
         @intFromBool(conf.hook), conf.uid_count, conf.pkg_count,
         @intFromBool(orig_create != null), @intFromBool(orig_set_flags != null),
     });
