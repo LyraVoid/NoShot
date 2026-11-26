@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { Icon } from "../atoms/Icon";
 import styles from "./FlexiblePageHeader.module.css";
 
 export function syncAppBar(element: HTMLElement, scrollTop: number) {
@@ -21,12 +22,24 @@ export function syncAppBar(element: HTMLElement, scrollTop: number) {
 export function FlexiblePageHeader({
   title,
   aside,
+  back,
 }: {
   title: string;
   aside?: ReactNode;
+  /** Secondary screens get a compact bar with a back affordance. */
+  back?: { label: string; onClick: () => void };
 }) {
   return (
-    <header className={styles.header} data-testid="flexible-page-header">
+    <header
+      className={styles.header}
+      data-compact={back ? "true" : undefined}
+      data-testid="flexible-page-header"
+    >
+      {back && (
+        <button type="button" className={styles.back} aria-label={back.label} onClick={back.onClick}>
+          <Icon name="back" />
+        </button>
+      )}
       <h1>{title}</h1>
       {aside && <span className={styles.aside}>{aside}</span>}
     </header>

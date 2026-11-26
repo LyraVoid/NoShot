@@ -28,9 +28,9 @@ as secure, and the app process is not modified at all.
 - Optional guard against screenshot-directory `inotify` watches (API v4 hosts).
 - Boot-loop guard: two boots without a completed start disable the system side
   by themselves.
-- WebUI: app picker with search and dual-app filter, patch-side menu per app,
-  status card with the active side, runtime log console, diagnostics, theme and
-  language.
+- WebUI: app picker with search and dual-app filter, a separate screen for the
+  per-app patch side, status card with the active side, runtime log console,
+  diagnostics, theme and language.
 
 ## Requirements and installation
 

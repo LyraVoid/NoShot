@@ -5,7 +5,7 @@ import { useI18n } from "./i18n/I18n";
 import type { Message } from "./i18n/messages";
 import styles from "./m3e/layout/Shell.module.css";
 
-export type Route = "/" | "/apps" | "/logs" | "/settings";
+export type Route = "/" | "/apps" | "/apps/modes" | "/logs" | "/settings";
 
 const links = [
   { path: "/", icon: "home", label: "nav.home" },
@@ -21,6 +21,7 @@ const links = [
  */
 export function Shell({ route, children }: { route: Route; children: ReactNode }) {
   const { t } = useI18n();
+  const secondary = route.startsWith("/apps/");
   const main = useRef<HTMLElement>(null);
   const positions = useRef(new Map<string, number>());
 
@@ -42,6 +43,7 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
       className={styles.shell}
       data-flexible="true"
       data-home={route === "/"}
+      data-secondary={secondary || undefined}
       data-testid="shell"
     >
       <button
@@ -51,9 +53,9 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
       >
         {t("nav.skip")}
       </button>
-      <nav className={styles.nav} aria-label={t("nav.label")}>
+      {!secondary && <nav className={styles.nav} aria-label={t("nav.label")}>
         {links.map((link) => {
-          const active = route === link.path;
+          const active = route === link.path || (link.path === "/apps" && route.startsWith("/apps/"));
           return (
             <a
               key={link.path}
@@ -67,7 +69,7 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
             </a>
           );
         })}
-      </nav>
+      </nav>}
       <main ref={main} tabIndex={-1} className={styles.main}>
         <div className={styles.content}>{children}</div>
       </main>

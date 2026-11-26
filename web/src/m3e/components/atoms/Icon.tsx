@@ -1,5 +1,6 @@
 import {
   AlertCircle,
+  ArrowLeft,
   Archive,
   Bug,
   Check,
@@ -70,6 +71,7 @@ const icons = {
   language: Languages,
   archive: Archive,
   chevron: ChevronRight,
+  back: ArrowLeft,
   save: Upload,
   export: Download,
   restore: RotateCcw,

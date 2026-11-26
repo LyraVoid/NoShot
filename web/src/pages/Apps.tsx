@@ -14,7 +14,6 @@ import {
   loadConf,
   saveConf,
 } from "../lib/bridge";
-import { monogram } from "../lib/labels";
 import type { AppEntry, PatchMode } from "../lib/types";
 import { useI18n } from "../i18n/I18n";
 import styles from "./Apps.module.css";
@@ -34,11 +33,16 @@ function modeOf(modes: Map<string, PatchMode>, pkg: string): PatchMode {
   return modes.get(pkg) ?? "system";
 }
 
+function initials(label: string): string {
+  const chars = [...label.trim()];
+  return (chars[0] ?? "?").toUpperCase();
+}
+
 function AppIcon({ app }: { app: AppEntry }) {
   const [failed, setFailed] = useState(false);
   return (
     <span className={styles.avatar} aria-hidden="true">
-      {isDemo || app.missing || failed ? monogram(app.label) : (
+      {isDemo || app.missing || failed ? initials(app.label) : (
         <img src={`ksu://icon/${encodeURIComponent(app.pkg)}`} alt="" loading="lazy" decoding="async" onError={() => setFailed(true)} />
       )}
     </span>
@@ -114,15 +118,6 @@ export function Apps() {
     });
   };
 
-  const setMode = (pkg: string, mode: PatchMode) => {
-    setModes((previous) => {
-      const next = new Map(previous);
-      if (mode === "system") next.delete(pkg);
-      else next.set(pkg, mode);
-      return next;
-    });
-  };
-
   const save = async () => {
     setBusy(true);
     try {
@@ -193,10 +188,18 @@ export function Apps() {
         />
 
         {!loading && (
-          <h2 className={styles.listHead}>
-            {filter === "all" ? t("apps.headAll") : filter === "selected" ? t("apps.headSelected") : t("apps.headClone")}
-            <span className={styles.count}>{filtered.length}</span>
-          </h2>
+          <div className={styles.listHead}>
+            <h2>
+              {filter === "all" ? t("apps.headAll") : filter === "selected" ? t("apps.headSelected") : t("apps.headClone")}
+              <span className={styles.count}>{filtered.length}</span>
+            </h2>
+            {selected.size > 0 && (
+              <a className={styles.modesLink} href="#/apps/modes">
+                {t("apps.modesEntry")}
+                <Icon name="chevron" />
+              </a>
+            )}
+          </div>
         )}
 
         {loading ? (
@@ -247,21 +250,6 @@ export function Apps() {
                   aria-description={`${checked ? t("apps.checked") : t("apps.unchecked")} · ${app.pkg}`}
                   leading={<AppIcon app={app} />}
                   title={app.label}
-                  endAction={checked ? (
-                    <ChoiceMenu<PatchMode>
-                      label={t("apps.modeMenu", { app: app.label })}
-                      value={modeOf(modes, app.pkg)}
-                      options={[
-                        { value: "system", label: t("apps.modeSystem") },
-                        { value: "client", label: t("apps.modeClient") },
-                      ]}
-                      onChange={(value) => setMode(app.pkg, value)}
-                    >
-                      <button type="button" className={styles.rowMenu} aria-label={t("apps.modeMenu", { app: app.label })}>
-                        <Icon name="more" />
-                      </button>
-                    </ChoiceMenu>
-                  ) : undefined}
                   trailing={
                     <span className={styles.ring} data-on={checked} aria-hidden="true">
                       <Icon name="check" />
