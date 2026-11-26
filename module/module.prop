@@ -1,6 +1,6 @@
 id=noshot_zygisk
 name=NoShot Zygisk
-version=v2.1.0
-versionCode=210
+version=v2.1.1
+versionCode=211
 author=Matsuzaka Yuki / LyraVoid
 description=Per-app FLAG_SECURE remover - system_server hook, no app code touched | 🟡 waiting for first boot

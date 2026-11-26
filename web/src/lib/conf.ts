@@ -14,7 +14,7 @@ export const SETTINGS_PATHS = [
 export const MODULE_ID = "noshot_zygisk";
 export const MODULE_DIR = `/data/adb/modules/${MODULE_ID}`;
 export const CONF_DIR = "/data/adb/noshot_zygisk";
-export const APP_VERSION = "2.1.0";
+export const APP_VERSION = "2.1.1";
 
 /** system_server state, written by the native module at boot. */
 export const MODE_PATH = "/data/system/noshot_mode";
