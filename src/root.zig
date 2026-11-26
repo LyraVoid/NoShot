@@ -36,9 +36,13 @@ const MAX_PROCESS = 256;
 var g_process: [MAX_PROCESS]u8 = undefined;
 var g_process_len: usize = 0;
 
+/// Hosts reject a module whose `impl` is null (Magisk's `valid()` checks it),
+/// silently: registration succeeds and the specialize callbacks never run.
+var module_impl: u8 = 0;
+
 var module_abi_v4: api.ModuleAbi = .{
     .api_version = 4,
-    .impl = null,
+    .impl = @ptrCast(&module_impl),
     .pre_app_specialize = &preAppSpecialize,
     .post_app_specialize = &postAppSpecialize,
     .pre_server_specialize = &preServerSpecialize,
@@ -49,7 +53,7 @@ var module_abi_v4: api.ModuleAbi = .{
 // but not the dev/inode PLT guard.
 var module_abi_v3: api.ModuleAbi = .{
     .api_version = 3,
-    .impl = null,
+    .impl = @ptrCast(&module_impl),
     .pre_app_specialize = &preAppSpecialize,
     .post_app_specialize = &postAppSpecialize,
     .pre_server_specialize = &preServerSpecialize,
