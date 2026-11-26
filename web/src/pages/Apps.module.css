@@ -88,6 +88,27 @@
   color: var(--on-surface);
 }
 
+.rowMenu {
+  display: grid;
+  place-items: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-full);
+  background: transparent;
+  color: var(--on-surface-variant);
+  cursor: pointer;
+  transition:
+    background var(--fast),
+    color var(--fast);
+}
+
+.rowMenu:is(:hover, [aria-expanded="true"]) {
+  background: var(--surface-container-high);
+  color: var(--on-surface);
+}
+
 .skeletonRow {
   display: grid;
   grid-template-columns: 2.5rem minmax(0, 1fr) auto;

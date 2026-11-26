@@ -15,7 +15,7 @@ import {
   saveConf,
 } from "../lib/bridge";
 import { monogram } from "../lib/labels";
-import type { AppEntry } from "../lib/types";
+import type { AppEntry, PatchMode } from "../lib/types";
 import { useI18n } from "../i18n/I18n";
 import styles from "./Apps.module.css";
 
@@ -28,6 +28,10 @@ function mergeApps(list: AppEntry[], selected: Set<string>): AppEntry[] {
     if (!known.has(pkg)) merged.push({ pkg, label: pkg, users: [0], missing: true });
   }
   return merged;
+}
+
+function modeOf(modes: Map<string, PatchMode>, pkg: string): PatchMode {
+  return modes.get(pkg) ?? "system";
 }
 
 function AppIcon({ app }: { app: AppEntry }) {
@@ -47,6 +51,8 @@ export function Apps() {
   const [apps, setApps] = useState<AppEntry[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [initial, setInitial] = useState<Set<string>>(new Set());
+  const [modes, setModes] = useState<Map<string, PatchMode>>(new Map());
+  const [initialModes, setInitialModes] = useState<Map<string, PatchMode>>(new Map());
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
   const [loading, setLoading] = useState(true);
@@ -64,6 +70,8 @@ export function Apps() {
       setApps(mergeApps(list, conf.pkgs));
       setSelected(new Set(conf.pkgs));
       setInitial(new Set(conf.pkgs));
+      setModes(new Map(conf.modes));
+      setInitialModes(new Map(conf.modes));
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : t("apps.loadFailed"));
     } finally {
@@ -77,9 +85,12 @@ export function Apps() {
 
   const dirty = useMemo(() => {
     if (selected.size !== initial.size) return true;
-    for (const pkg of selected) if (!initial.has(pkg)) return true;
+    for (const pkg of selected) {
+      if (!initial.has(pkg)) return true;
+      if (modeOf(modes, pkg) !== modeOf(initialModes, pkg)) return true;
+    }
     return false;
-  }, [selected, initial]);
+  }, [selected, initial, modes, initialModes]);
 
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -103,15 +114,25 @@ export function Apps() {
     });
   };
 
+  const setMode = (pkg: string, mode: PatchMode) => {
+    setModes((previous) => {
+      const next = new Map(previous);
+      if (mode === "system") next.delete(pkg);
+      else next.set(pkg, mode);
+      return next;
+    });
+  };
+
   const save = async () => {
     setBusy(true);
     try {
-      const path = await saveConf(selected);
+      const path = await saveConf(selected, modes);
       if (!path) {
         snack(t("apps.saveFail"), "error");
         return;
       }
       setInitial(new Set(selected));
+      setInitialModes(new Map(modes));
     } catch {
       snack(t("apps.saveFailRetry"), "error");
     } finally {
@@ -226,6 +247,21 @@ export function Apps() {
                   aria-description={`${checked ? t("apps.checked") : t("apps.unchecked")} · ${app.pkg}`}
                   leading={<AppIcon app={app} />}
                   title={app.label}
+                  endAction={checked ? (
+                    <ChoiceMenu<PatchMode>
+                      label={t("apps.modeMenu", { app: app.label })}
+                      value={modeOf(modes, app.pkg)}
+                      options={[
+                        { value: "system", label: t("apps.modeSystem") },
+                        { value: "client", label: t("apps.modeClient") },
+                      ]}
+                      onChange={(value) => setMode(app.pkg, value)}
+                    >
+                      <button type="button" className={styles.rowMenu} aria-label={t("apps.modeMenu", { app: app.label })}>
+                        <Icon name="more" />
+                      </button>
+                    </ChoiceMenu>
+                  ) : undefined}
                   trailing={
                     <span className={styles.ring} data-on={checked} aria-hidden="true">
                       <Icon name="check" />

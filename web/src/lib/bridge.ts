@@ -1,7 +1,8 @@
-import type { AppEntry, Settings, ZygiskStatus } from "./types";
+import type { AppEntry, PatchMode, Settings, ZygiskStatus } from "./types";
 import {
   APP_VERSION,
   CONF_PATHS,
+  MODE_PATH,
   MODULE_DIR,
   SETTINGS_PATHS,
   buildConf,
@@ -215,7 +216,12 @@ export async function writeText(path: string, text: string): Promise<boolean> {
 
 /* ----------------------------------------------------------------- config */
 
-export type LoadedConf = { pkgs: Set<string>; path: string | null; text: string };
+export type LoadedConf = {
+  pkgs: Set<string>;
+  modes: Map<string, PatchMode>;
+  path: string | null;
+  text: string;
+};
 
 export async function loadConf(): Promise<LoadedConf> {
   if (isDemo) {
@@ -225,7 +231,8 @@ export async function loadConf(): Promise<LoadedConf> {
         ? (JSON.parse(cached) as string[])
         : ["com.tencent.mm", "com.eg.android.AlipayGphone"],
     );
-    return { pkgs, path: CONF_PATHS[0], text: buildConf(pkgs) };
+    const modes = new Map<string, PatchMode>();
+    return { pkgs, modes, path: CONF_PATHS[0], text: buildConf(pkgs, modes) };
   }
 
   const files = await readCandidates(CONF_PATHS);
@@ -233,19 +240,27 @@ export async function loadConf(): Promise<LoadedConf> {
     const parsed = parseConf(f.text);
     if (parsed.valid) {
       safeSet("noshot_conf_cache", f.text);
-      return { pkgs: parsed.pkgs, path: f.path, text: f.text };
+      return { pkgs: parsed.pkgs, modes: parsed.modes, path: f.path, text: f.text };
     }
   }
   const cached = safeGet("noshot_conf_cache");
   if (cached) {
     const parsed = parseConf(cached);
-    if (parsed.valid) return { pkgs: parsed.pkgs, path: null, text: cached };
+    if (parsed.valid) {
+      return { pkgs: parsed.pkgs, modes: parsed.modes, path: null, text: cached };
+    }
   }
-  return { pkgs: new Set(), path: null, text: "" };
+  return { pkgs: new Set(), modes: new Map(), path: null, text: "" };
 }
 
-export async function saveConf(pkgs: Set<string>): Promise<string | null> {
-  const text = buildConf(pkgs);
+/** Rebuilds /data/system/noshot_plan so the change applies on the next window. */
+export async function applyPlan(): Promise<void> {
+  if (isDemo) return;
+  await exec(`sh ${MODULE_DIR}/plan.sh >/dev/null 2>&1; echo __NOSHOT_PLAN__`);
+}
+
+export async function saveConf(pkgs: Set<string>, modes: Map<string, PatchMode> = new Map()): Promise<string | null> {
+  const text = buildConf(pkgs, modes);
   if (isDemo) {
     safeSet("noshot_demo_targets", JSON.stringify([...pkgs]));
     return CONF_PATHS[0];
@@ -253,9 +268,19 @@ export async function saveConf(pkgs: Set<string>): Promise<string | null> {
   for (const path of CONF_PATHS) {
     if (await writeText(path, text)) {
       safeSet("noshot_conf_cache", text);
+      await applyPlan();
       return path;
     }
   }
+  return null;
+}
+
+/** Effective side of the module, as reported by system_server at boot. */
+export async function systemMode(): Promise<PatchMode | null> {
+  if (isDemo) return "system";
+  const text = await readText(MODE_PATH);
+  const value = text.trim();
+  if (value === "system" || value === "client") return value;
   return null;
 }
 
@@ -279,7 +304,10 @@ export async function saveSettings(s: Settings): Promise<boolean> {
   }
   const text = buildSettings(s);
   for (const path of SETTINGS_PATHS) {
-    if (await writeText(path, text)) return true;
+    if (await writeText(path, text)) {
+      await applyPlan();
+      return true;
+    }
   }
   return false;
 }
@@ -458,7 +486,8 @@ export async function zygiskStatus(): Promise<ZygiskStatus> {
     `marker=${MODULE_DIR}/.loaded; so=$(ls ${MODULE_DIR}/zygisk/arm64-v8a.so 2>/dev/null); stamp="$boot $(stat -c %Y "$so" 2>/dev/null)"`,
     `if [ -e ${MODULE_DIR}/disable ] || [ -e ${MODULE_DIR}/remove ]; then m=disabled; elif [ "$m" = installed ]; then if logcat -d -s NoShot 2>/dev/null | grep -q 'module loaded pid='; then m=loaded; h=active; printf '%s\\n' "$stamp" > "$marker" 2>/dev/null; elif [ "$(cat "$marker" 2>/dev/null)" = "$stamp" ]; then m=loaded; h=active; fi; fi`,
     `case "$m" in loaded) st="✅ active";; installed) st="🟡 installed, not loaded";; disabled) st="⛔ disabled";; missing) st="❌ library missing";; *) if [ "$h" = active ]; then st="⚠️ unknown state"; else st="⚠️ zygisk not running"; fi;; esac`,
-    `prop=${MODULE_DIR}/module.prop; if [ -f "$prop" ] && grep -Eq '^description=' "$prop"; then tmp="$prop.tmp"; sed "s#^description=.*#description=Per-app FLAG_SECURE remover - binder-level clear, no ART hooks | \${st}#" "$prop" > "$tmp" 2>/dev/null && cat "$tmp" > "$prop"; rm -f "$tmp"; chmod 0644 "$prop" 2>/dev/null; fi`,
+    `side=client; grep -qs '^system' ${MODE_PATH} && side=system`,
+    `prop=${MODULE_DIR}/module.prop; if [ -f "$prop" ] && grep -Eq '^description=' "$prop"; then tmp="$prop.tmp"; sed "s#^description=.*#description=Per-app FLAG_SECURE remover - system_server hook, no app code touched | \${st} (\${side})#" "$prop" > "$tmp" 2>/dev/null && cat "$tmp" > "$prop"; rm -f "$tmp"; chmod 0644 "$prop" 2>/dev/null; fi`,
     `echo "NOSHOT:$h:$m"`,
   ].join("; ");
   const out = await exec(script);

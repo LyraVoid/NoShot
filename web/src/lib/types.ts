@@ -9,10 +9,13 @@ export type AppEntry = {
   missing?: boolean;
 };
 
+export type PatchMode = "system" | "client";
+
 export type Settings = {
   flagSecure: boolean;
   surfaceSecure: boolean;
   detectGuard: boolean;
+  systemHook: boolean;
   log: boolean;
 };
 

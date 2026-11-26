@@ -1,8 +1,8 @@
 import { useState, useEffect } from "react";
-import { isDemo, loadApps, loadConf, moduleVersion, stopApps, zygiskStatus } from "../lib/bridge";
+import { isDemo, loadApps, loadConf, moduleVersion, stopApps, systemMode, zygiskStatus } from "../lib/bridge";
 import { CONF_PATHS } from "../lib/conf";
 import { useSnackbar } from "../Snackbar";
-import type { ZygiskStatus } from "../lib/types";
+import type { PatchMode, ZygiskStatus } from "../lib/types";
 import { Icon, type IconName } from "../m3e/components/atoms/Icon";
 import { FlexiblePageHeader } from "../m3e/components/molecules/FlexiblePageHeader";
 import { SegmentedSection } from "../m3e/components/molecules/SegmentedSection";
@@ -58,6 +58,7 @@ export function Home() {
   const [stopping, setStopping] = useState(false);
   const [status, setStatus] = useState<ZygiskStatus>();
   const [version, setVersion] = useState("—");
+  const [mode, setMode] = useState<PatchMode | null>(null);
   const [probe, setProbe] = useState(0);
   const [loading, setLoading] = useState(true);
 
@@ -77,6 +78,12 @@ export function Home() {
     void moduleVersion().then((next) => { if (current) setVersion(next); });
     return () => { current = false; };
   }, []);
+
+  useEffect(() => {
+    let current = true;
+    void systemMode().then((next) => { if (current) setMode(next); });
+    return () => { current = false; };
+  }, [probe]);
 
   const card = cardState(status, t);
 
@@ -113,6 +120,11 @@ export function Home() {
           </output>
           <SegmentedSection title={t("home.status")}>
             <SettingsRow icon="status" title={t("home.module")} detail={status ? t(MODULE[status.module]) : t("home.detecting")} />
+            <SettingsRow
+              icon="layers"
+              title={t("home.mode")}
+              detail={mode === "system" ? t("home.modeSystem") : mode === "client" ? t("home.modeClient") : t("home.modeUnknown")}
+            />
             <SettingsRow icon="refresh" title={loading ? t("home.detecting") : t("home.detect")} disabled={loading} action={() => {
               setLoading(true);
               setProbe((current) => current + 1);

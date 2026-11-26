@@ -15,6 +15,7 @@ import { localeName, locales } from "../i18n/messages";
 import styles from "./Settings.module.css";
 
 const behavior = [
+  ["systemHook", "active", "settings.system", "settings.systemDetail"],
   ["flagSecure", "secure", "settings.flag", "settings.flagDetail"],
   ["surfaceSecure", "layers", "settings.surface", "settings.surfaceDetail"],
   ["detectGuard", "filter", "settings.detect", "settings.detectDetail"],
