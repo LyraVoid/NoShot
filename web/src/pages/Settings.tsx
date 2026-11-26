@@ -7,19 +7,24 @@ import { SegmentedSection } from "../m3e/components/molecules/SegmentedSection";
 import { ChoiceMenu } from "../m3e/components/atoms/ChoiceMenu";
 import { SettingsRow } from "../m3e/components/molecules/SettingsList";
 import { loadSettings, openExternal, saveSettings } from "../lib/bridge";
-import type { Settings as SettingsValue } from "../lib/types";
+import type { CaptureGuard, Settings as SettingsValue } from "../lib/types";
 import type { Message } from "../i18n/messages";
 import { Appearance, type AppearanceProps } from "./Appearance";
 import { useI18n } from "../i18n/I18n";
 import { localeName, locales } from "../i18n/messages";
 import styles from "./Settings.module.css";
 
-const behavior = [
-  ["systemHook", "active", "settings.system", "settings.systemDetail"],
-  ["flagSecure", "secure", "settings.flag", "settings.flagDetail"],
-  ["surfaceSecure", "layers", "settings.surface", "settings.surfaceDetail"],
-  ["detectGuard", "filter", "settings.detect", "settings.detectDetail"],
-] as const satisfies readonly (readonly [keyof SettingsValue, IconName, Message, Message])[];
+type BoolKey = {
+  [K in keyof SettingsValue]: SettingsValue[K] extends boolean ? K : never;
+}[keyof SettingsValue];
+
+const captureLevels = ["off", "observe", "on"] as const;
+
+const captureLabel = {
+  off: "settings.captureOff",
+  observe: "settings.captureObserve",
+  on: "settings.captureOn",
+} as const satisfies Record<CaptureGuard, Message>;
 
 export function Settings(appearance: AppearanceProps) {
   const snack = useSnackbar();
@@ -38,7 +43,7 @@ export function Settings(appearance: AppearanceProps) {
     return () => { alive = false; };
   }, []);
 
-  const patch = async (key: keyof SettingsValue, value: boolean) => {
+  const patch = async <K extends keyof SettingsValue>(key: K, value: SettingsValue[K]) => {
     if (!settings || saving) return;
     const next = { ...settings, [key]: value };
     setSaving(true);
@@ -52,7 +57,7 @@ export function Settings(appearance: AppearanceProps) {
     }
   };
 
-  function toggle(key: keyof SettingsValue, icon: IconName, title: Message, detail: Message) {
+  function toggle(key: BoolKey, icon: IconName, title: Message, detail: Message) {
     const on = settings?.[key] ?? false;
     const disabled = !settings || saving;
     return (
@@ -70,13 +75,41 @@ export function Settings(appearance: AppearanceProps) {
     );
   }
 
+  function captureRow(value: CaptureGuard) {
+    const disabled = !settings || saving;
+    const level = t(captureLabel[value]);
+    return (
+      <ChoiceMenu
+        key="captureGuard"
+        label={t("settings.captureMenu", { level })}
+        value={value}
+        options={captureLevels.map((v) => ({ value: v, label: t(captureLabel[v]) }))}
+        onChange={(next) => void patch("captureGuard", next)}
+      >
+        <SettingsRow
+          icon="secure"
+          title={t("settings.capture")}
+          detail={t("settings.captureDetail")}
+          disabled={disabled}
+          trailing={<span>{level}</span>}
+        />
+      </ChoiceMenu>
+    );
+  }
+
   return (
     <>
       <FlexiblePageHeader title={t("settings.title")} aside={saving ? t("settings.saving") : undefined} />
       <div className={styles.page}>
         <div className={styles.preferences}>
           <SegmentedSection title={t("settings.behavior")}>
-            {settings ? behavior.map(([key, icon, title, detail]) => toggle(key, icon, title, detail)) : (
+            {settings ? [
+              toggle("systemHook", "active", "settings.system", "settings.systemDetail"),
+              captureRow(settings.captureGuard),
+              toggle("flagSecure", "secure", "settings.flag", "settings.flagDetail"),
+              toggle("surfaceSecure", "layers", "settings.surface", "settings.surfaceDetail"),
+              toggle("detectGuard", "filter", "settings.detect", "settings.detectDetail"),
+            ] : (
               <SettingsRow icon={loadFailed ? "notice" : "loading"} role="status" title={loadFailed ? t("settings.readFailed") : t("settings.reading")} />
             )}
           </SegmentedSection>

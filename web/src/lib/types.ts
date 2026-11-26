@@ -11,12 +11,16 @@ export type AppEntry = {
 
 export type PatchMode = "system" | "client";
 
+/** Capture/recording callback handling, system side only. */
+export type CaptureGuard = "off" | "observe" | "on";
+
 export type Settings = {
   flagSecure: boolean;
   surfaceSecure: boolean;
   detectGuard: boolean;
   systemHook: boolean;
   log: boolean;
+  captureGuard: CaptureGuard;
 };
 
 export type ZygiskStatus = {

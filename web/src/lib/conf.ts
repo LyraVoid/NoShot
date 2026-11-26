@@ -1,4 +1,4 @@
-import type { PatchMode, Settings } from "./types";
+import type { CaptureGuard, PatchMode, Settings } from "./types";
 
 /** Must match src/config.zig. First writable / valid path wins. */
 export const CONF_PATHS = [
@@ -14,10 +14,13 @@ export const SETTINGS_PATHS = [
 export const MODULE_ID = "noshot_zygisk";
 export const MODULE_DIR = `/data/adb/modules/${MODULE_ID}`;
 export const CONF_DIR = "/data/adb/noshot_zygisk";
-export const APP_VERSION = "2.0.0";
+export const APP_VERSION = "2.1.0";
 
 /** system_server state, written by the native module at boot. */
 export const MODE_PATH = "/data/system/noshot_mode";
+
+/** Capture-callback status, written by the native module at boot. */
+export const GUARD_PATH = "/data/system/noshot_guard";
 
 const PKG_RE = /^[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)+$/;
 
@@ -106,6 +109,11 @@ export function buildConf(pkgs: Iterable<string>, modes: Map<string, PatchMode> 
   return lines.join("\n") + "\n";
 }
 
+export function parseCaptureGuard(v: string): CaptureGuard {
+  if (v === "observe") return "observe";
+  return v === "1" || v === "true" || v === "on" ? "on" : "off";
+}
+
 export function parseSettingsText(text: string): Settings {
   const s: Settings = {
     flagSecure: true,
@@ -113,6 +121,7 @@ export function parseSettingsText(text: string): Settings {
     detectGuard: true,
     systemHook: true,
     log: true,
+    captureGuard: "off",
   };
   for (const raw of String(text ?? "").split("\n")) {
     const line = raw.trim();
@@ -126,6 +135,7 @@ export function parseSettingsText(text: string): Settings {
     else if (key === "surface_secure") s.surfaceSecure = on;
     else if (key === "detect_guard") s.detectGuard = on;
     else if (key === "system_hook") s.systemHook = on;
+    else if (key === "capture_guard") s.captureGuard = parseCaptureGuard(val);
     else if (key === "log") s.log = on;
   }
   return s;
@@ -138,6 +148,7 @@ export function buildSettings(s: Settings): string {
     `surface_secure=${s.surfaceSecure ? 1 : 0}`,
     `detect_guard=${s.detectGuard ? 1 : 0}`,
     `system_hook=${s.systemHook ? 1 : 0}`,
+    `capture_guard=${s.captureGuard === "on" ? 1 : s.captureGuard}`,
     `log=${s.log ? 1 : 0}`,
     "",
   ].join("\n");

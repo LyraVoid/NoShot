@@ -1,7 +1,8 @@
-import type { AppEntry, PatchMode, Settings, ZygiskStatus } from "./types";
+import type { AppEntry, CaptureGuard, PatchMode, Settings, ZygiskStatus } from "./types";
 import {
   APP_VERSION,
   CONF_PATHS,
+  GUARD_PATH,
   MODE_PATH,
   MODULE_DIR,
   SETTINGS_PATHS,
@@ -284,6 +285,16 @@ export async function systemMode(): Promise<PatchMode | null> {
   return null;
 }
 
+export type GuardState = CaptureGuard | "unsupported" | "restart";
+
+/** Capture-callback state reported by system_server. */
+export async function captureGuardState(): Promise<GuardState | null> {
+  if (isDemo) return "on";
+  const value = (await readText(GUARD_PATH)).trim();
+  if (value === "on" || value === "observe" || value === "off" || value === "unsupported" || value === "restart") return value;
+  return null;
+}
+
 export async function loadSettings(): Promise<Settings> {
   if (isDemo) {
     const cached = safeGet("noshot_demo_settings");
@@ -537,6 +548,7 @@ export async function diagnose(): Promise<string> {
       'echo "release=$(getprop ro.build.version.release) sdk=$(getprop ro.build.version.sdk) abi=$(getprop ro.product.cpu.abi)"',
       `echo "module=${MODULE_DIR}"; ls -l ${MODULE_DIR}/zygisk 2>/dev/null`,
       `echo "config:"; ls -l ${CONF_PATHS[0]} ${SETTINGS_PATHS[0]} 2>/dev/null; cat ${CONF_PATHS[0]} 2>/dev/null`,
+      `echo "guard=$(cat ${GUARD_PATH} 2>/dev/null)"; echo "state:"; tail -n 12 /data/system/noshot_state 2>/dev/null`,
       "echo \"logcat_lines=$(logcat -d -t 5 2>/dev/null | wc -l)\"",
     ].join("; ");
   return decodeText(await exec(`{ ${body}; } | base64 | tr -d '\\n'; printf '\\n'`));

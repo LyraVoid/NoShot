@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { isDemo, loadApps, loadConf, moduleVersion, stopApps, systemMode, zygiskStatus } from "../lib/bridge";
+import { captureGuardState, type GuardState, isDemo, loadApps, loadConf, moduleVersion, stopApps, systemMode, zygiskStatus } from "../lib/bridge";
 import { CONF_PATHS } from "../lib/conf";
 import { useSnackbar } from "../Snackbar";
 import type { PatchMode, ZygiskStatus } from "../lib/types";
@@ -44,6 +44,17 @@ function cardState(status: ZygiskStatus | undefined, t: Translate): {
   };
 }
 
+function guardText(guard: GuardState | null, t: Translate): string {
+  switch (guard) {
+    case "on": return t("home.captureOn");
+    case "observe": return t("home.captureObserve");
+    case "off": return t("home.captureOff");
+    case "unsupported": return t("home.captureUnsupported");
+    case "restart": return t("home.captureRestart");
+    default: return t("home.captureUnknown");
+  }
+}
+
 const MODULE = {
   loaded: "home.mod.loaded",
   installed: "home.mod.installed",
@@ -59,6 +70,7 @@ export function Home() {
   const [status, setStatus] = useState<ZygiskStatus>();
   const [version, setVersion] = useState("—");
   const [mode, setMode] = useState<PatchMode | null>(null);
+  const [guard, setGuard] = useState<GuardState | null>(null);
   const [probe, setProbe] = useState(0);
   const [loading, setLoading] = useState(true);
 
@@ -82,6 +94,12 @@ export function Home() {
   useEffect(() => {
     let current = true;
     void systemMode().then((next) => { if (current) setMode(next); });
+    return () => { current = false; };
+  }, [probe]);
+
+  useEffect(() => {
+    let current = true;
+    void captureGuardState().then((next) => { if (current) setGuard(next); });
     return () => { current = false; };
   }, [probe]);
 
@@ -125,6 +143,7 @@ export function Home() {
               title={t("home.mode")}
               detail={mode === "system" ? t("home.modeSystem") : mode === "client" ? t("home.modeClient") : t("home.modeUnknown")}
             />
+            <SettingsRow icon="secure" title={t("home.capture")} detail={guardText(guard, t)} />
             <SettingsRow icon="refresh" title={loading ? t("home.detecting") : t("home.detect")} disabled={loading} action={() => {
               setLoading(true);
               setProbe((current) => current + 1);
